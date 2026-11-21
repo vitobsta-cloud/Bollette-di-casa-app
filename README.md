@@ -32,4 +32,4 @@ Ogni bolletta va nella cartella del suo ente nell'archivio sul NAS:
 
 ## Firma
 
-La chiave **non** è nel repository. Il workflow la ricrea dai Secrets del repository `KEYSTORE_BASE64` e `KEYSTORE_PASSWORD` (alias `bollette`). È una chiave diversa da quella di Garanzie & Scontrini.
+La chiave di firma è nel progetto solo **cifrata** (`app/firma.keystore.enc`, AES-256 con PBKDF2). Il workflow la apre con il secret `KEYSTORE_PASSWORD` del repository (alias `bollette`). È una chiave diversa da quella di Garanzie & Scontrini. Una copia non cifrata è sul NAS, nella cartella privata.
