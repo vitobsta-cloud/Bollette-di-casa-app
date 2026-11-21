@@ -769,12 +769,12 @@ domiciliata = true SOLO se la bolletta dice che QUESTO importo verrà addebitato
 async function geminiCall(body, model){
   const s = settings();
   // ogni richiesta ha un tempo massimo: se Google non risponde si passa oltre invece di girare per sempre
-  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 25000);
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), geminiAttesa);
   try{
     const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || s.geminiModel || DEFAULTS.geminiModel)}:generateContent`, {method:"POST", headers:{"content-type":"application/json", "x-goog-api-key":s.geminiKey}, body:JSON.stringify(body), signal:ac.signal});
     const j = await r.json().catch(() => ({}));
     return {status:r.status, j};
-  }catch(e){ return {status:408, j:{error:{message:ac.signal.aborted ? "Google non ha risposto entro 25 secondi" : "nessuna connessione a Google"}}}; }
+  }catch(e){ return {status:408, j:{error:{message:ac.signal.aborted ? `Google non ha risposto entro ${Math.round(geminiAttesa / 1000)} secondi` : "nessuna connessione a Google"}}}; }
   finally{ clearTimeout(t); }
 }
 async function geminiModelli(){
@@ -1190,8 +1190,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.14";
+const VERSIONE = "v1.15";
 const CRONOLOGIA = [
+  {v:"v1.15", d:"21/11/2026", n:["Rate del condominio: il telefono legge da solo la tabella. Se Google non risponde, tocchi la tua riga nell'elenco e le 4 rate si compilano con le date.", "Le foto del prospetto vanno a Google più leggere e con più tempo per rispondere.", "Se gli importi di Google non coincidono con quelli letti dal telefono, l'app lo segnala."]},
   {v:"v1.14", d:"21/11/2026", n:["In Acquisisci c'è «🖼️ Scegli una o più foto»: prendi dalla galleria le foto già fatte, anche più di una insieme."]},
   {v:"v1.13", d:"21/11/2026", n:[
     "Rate del condominio: dalla foto del prospetto l'app trova le righe delle tue case e crea una scadenza per ogni rata (con il suo avviso)",
@@ -1988,32 +1989,78 @@ async function avviaRate(docs, msg){
   draft.rate = {stato:"nomi", righe:[], condominio:"", errore:""};
   if(nomiCondominio().length) await cercaRate(docs, msg); else renderAcquisisci();
 }
+let geminiAttesa = 25000;
 async function cercaRate(docs, msg){
   docs = docs || draft.pendingFiles;
-  const nomi = nomiCondominio();
+  const nomi = nomiCondominio(), tel = rateDaTesto(lastText);
   draft.rate = Object.assign(draft.rate || {}, {stato:"cerco", errore:""});
-  if(!settings().geminiKey){ draft.rate = mano(nomi, "Per leggere la tabella delle rate serve il controllo online di Google (Impostazioni → Lettura bollette). Intanto puoi scriverle a mano qui sotto."); renderAcquisisci(); return; }
+  if(!settings().geminiKey){ draft.rate = mano(nomi, tel, tel.righe.length ? "" : "Per leggere la tabella serve il controllo online di Google (Impostazioni → Lettura bollette). Intanto puoi scrivere le rate a mano."); salvaBozza(); renderAcquisisci(); return; }
   msg && msg("Cerco nella tabella le righe di " + nomi.map(c => c.nomeCond).join(" e ") + "…");
   try{
     const d = await geminiRate(docs, nomi.map(c => c.nomeCond));
+    const uguali = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 0.015);
     const righe = nomi.map(c => {
       const k = x => String(x || "").toLowerCase().replace(/[^a-z]/g, "");
-      const g = (d.righe || []).find(x => k(x.cercato) === k(c.nomeCond)) || (d.righe || []).find(x => k(x.nominativo).includes(k(c.nomeCond)) || k(c.nomeCond).includes(k(x.nominativo)));
+      const g = (d.righe || []).find(x => k(x.cercato) === k(c.nomeCond)) || (d.righe || []).find(x => k(x.nominativo) && (k(x.nominativo).includes(k(c.nomeCond)) || k(c.nomeCond).includes(k(x.nominativo))));
       const rate = (g && Array.isArray(g.rate) ? g.rate : []).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.scadenza || "") && Number(x.importo) > 0)
         .map((x, i) => ({numero:Number(x.numero) || i + 1, scadenza:x.scadenza, importo:Math.round(Number(x.importo) * 100) / 100, stato:"da", pagataIl:"", pagataCon:"", evidenziata:x.evidenziata === true}));
-      return {casa:c.nome, nominativo:g ? g.nominativo : "", rate};
+      // precisione: se il telefono ha letto le righe della tabella, gli importi di Google devono essere una di quelle righe
+      const dubbio = rate.length > 0 && tel.righe.length > 0 && !tel.righe.some(r => uguali(r, rate.map(x => x.importo)));
+      return rate.length ? {casa:c.nome, nominativo:g.nominativo || c.nomeCond, rate, dubbio} : rigaVuota(c, tel);
     });
-    draft.rate = {stato:"controllo", condominio:String(d.condominio || "Condominio").trim(), gestioneDa:d.gestioneDa || "", gestioneA:d.gestioneA || "", righe, errore:""};
-  }catch(e){ draft.rate = mano(nomi, "Lettura online non riuscita (" + e.message + "). Puoi riprovare oppure scrivere le rate a mano."); }
+    draft.rate = {stato:"controllo", condominio:String(d.condominio || tel.condominio || "Condominio").trim(), gestioneDa:d.gestioneDa || tel.gestioneDa || "", gestioneA:d.gestioneA || tel.gestioneA || "", righe, candidati:tel.righe, date:tel.date, errore:""};
+  }catch(e){
+    draft.rate = mano(nomi, tel, "La lettura online non è riuscita (" + e.message + ")." + (tel.righe.length ? " Il telefono ha letto la tabella: tocca la tua riga qui sotto." : " Puoi riprovare oppure scrivere le rate a mano."));
+  }
   salvaBozza(); renderAcquisisci();
 }
-function mano(nomi, errore){ return {stato:"controllo", condominio:"Condominio", righe:nomi.map(c => ({casa:c.nome, nominativo:"", rate:[1, 2, 3, 4].map(n => ({numero:n, scadenza:"", importo:"", stato:"da"}))})), errore}; }
+function rigaVuota(c, tel){ return {casa:c.nome, nominativo:"", scegli:tel.righe.length > 0, rate:[1, 2, 3, 4].map((n, i) => ({numero:n, scadenza:tel.date[i] || "", importo:"", stato:"da"}))}; }
+function mano(nomi, tel, errore){
+  return {stato:"controllo", condominio:tel.condominio || "Condominio", gestioneDa:tel.gestioneDa || "", gestioneA:tel.gestioneA || "", righe:nomi.map(c => rigaVuota(c, tel)), candidati:tel.righe, date:tel.date, errore};
+}
+/* Lettura del prospetto solo con il telefono: nome del condominio, gestione, date delle rate e le righe della tabella (4 importi). */
+function rateDaTesto(t){
+  t = String(t || "");
+  const out = {condominio:"", gestioneDa:"", gestioneA:"", date:[], righe:[]};
+  const iso = d => { const m = d.match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : ""; };
+  const c = t.match(/Condominio(?:[ \t]+(?:[A-ZÀ-Ü][\wÀ-ü'’.]*|di|del|della|dei|degli|delle|gli|le|la|il|lo|i))+/);
+  if(c) out.condominio = c[0].replace(/\s+(?:di|del|della|dei|degli|delle|gli|le|la|il|lo|i)$/i, "").trim();
+  const g = t.match(/dal\s+(\d{2}\/\d{2}\/\d{4})\s+al\s+(\d{2}\/\d{2}\/\d{4})/i);
+  if(g){ out.gestioneDa = iso(g[1]); out.gestioneA = iso(g[2]); }
+  const tutte = [...new Set((t.match(/\b\d{2}\/\d{2}\/20\d{2}\b/g) || []).map(iso))].filter(d => d && d !== out.gestioneDa && d !== out.gestioneA && (!out.gestioneDa || (d >= out.gestioneDa && d <= out.gestioneA))).sort();
+  out.date = tutte.slice(0, 6);
+  const num = s => Number(s.replace(/[\s.](?=\d{3}(?:\D|$))/g, "").replace(",", "."));
+  const viste = new Set();
+  t.split(/\n/).forEach(riga => {
+    const v = (riga.match(/-?\d{1,3}(?:[.\s]\d{3})*,\d{2}(?!\d)|-?\d+\.\d{2}(?!\d)/g) || []).map(num).filter(x => !isNaN(x));
+    if(v.length < 4) return;
+    const r = v.slice(-4), [a, b, cc, d] = r;
+    // le ultime 3 rate sono quasi uguali (stessa percentuale), la prima è diversa ma positiva
+    if(!(a > 0 && b > 0 && Math.abs(b - cc) <= 0.03 && Math.abs(b - d) <= 0.05)) return;
+    if(v.length >= 5 && Math.abs(v[v.length - 5] - (a + b + cc + d)) > 0.05 && v[v.length - 5] > a) { /* il residuo non torna: tengo comunque la riga, è solo un controllo in più */ }
+    const k = r.map(x => x.toFixed(2)).join("|"); if(viste.has(k)) return; viste.add(k);
+    out.righe.push(r);
+  });
+  return out;
+}
+async function piccola(f, lato){
+  if(!f.mime.startsWith("image/")) return f;
+  try{
+    const img = await loadImage(dataUrl(f)), k = Math.min(1, lato / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return {name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.85).split(",")[1]};
+  }catch(e){ return f; }
+}
 async function geminiRate(files, nomi){
-  const parts = files.slice(0, 2).map(f => ({inline_data:{mime_type:f.mime, data:f.data}}));
-  parts.push({text:`Questo è un prospetto delle rate di un condominio italiano: una tabella con una riga per condòmino. Considera SOLO le colonne delle rate (1ª rata, 2ª rata, 3ª rata, 4ª rata…), ognuna con la sua data di scadenza scritta nell'intestazione della colonna. Ignora Totale preventivo, Saldo gestione precedente, Totale generale, Versamenti, Residuo e le scritte a mano.
+  const parts = [];
+  for(const f of files.slice(0, 3)){ const p = await piccola(f, 2000); parts.push({inline_data:{mime_type:p.mime, data:p.data}}); }
+  parts.push({text:`Queste foto (${parts.length}) mostrano un prospetto delle rate di un condominio italiano: una tabella con una riga per condòmino; alcune foto possono essere ingrandimenti di una parte della stessa tabella. Considera SOLO le colonne delle rate (1ª rata, 2ª rata, 3ª rata, 4ª rata…), ognuna con la sua data di scadenza scritta nell'intestazione della colonna. Ignora Totale preventivo, Saldo gestione precedente, Totale generale, Versamenti, Residuo e le scritte a mano.
 Per ciascuno di questi nominativi trova la sua riga (il nome può essere scritto in modo leggermente diverso): ${nomi.map(n => '"' + n + '"').join(", ")}.
 Rispondi SOLO con JSON: {"condominio":"nome del condominio (es. Condominio Residence Gli Oleandri)","gestioneDa":"AAAA-MM-GG","gestioneA":"AAAA-MM-GG","righe":[{"cercato":"il nome che ti ho dato","nominativo":"come è scritto nella tabella","rate":[{"numero":1,"scadenza":"AAAA-MM-GG","importo":numero,"evidenziata":true|false}]}]}. "evidenziata" è true se la cella dell'importo è colorata con l'evidenziatore. Leggi gli importi con attenzione, cifra per cifra, sulla riga giusta. Se un nominativo non c'è, restituiscilo con "rate":[].`});
-  const {status, j} = await geminiSicuro({contents:[{role:"user", parts}], generationConfig:{temperature:0, responseMimeType:"application/json"}});
+  geminiAttesa = 60000;
+  let res; try{ res = await geminiSicuro({contents:[{role:"user", parts}], generationConfig:{temperature:0, responseMimeType:"application/json"}}); } finally{ geminiAttesa = 25000; }
+  const {status, j} = res;
   if(status === 429) throw new Error("limite gratuito di Google raggiunto");
   if(status !== 200) throw new Error("Google: " + (j.error?.message || status));
   const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
@@ -2027,14 +2074,16 @@ function cardRate(){
     ${caseCasa().map((c, i) => `<label>${esc((c.icona || "🏠") + " " + c.nome)}</label><input data-nc="${i}" value="${esc(c.nomeCond || "")}" placeholder="nome nel condominio" autocapitalize="characters" autocomplete="off">`).join("")}
     <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div><div id="rOut"></div></div>`;
   if(R.stato === "cerco") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate</h2><div class="status"><span class="spinner"></span>Cerco le tue righe nella tabella…</div></div>`;
-  const riga = (h, i) => `<div style="margin-top:12px"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : "· riga non trovata: scrivi le rate a mano"}</span>
-      ${h.rate.map((x, j) => `<div class="entry" style="flex-wrap:wrap;margin-top:6px"><div class="txt" style="flex:1 1 100%"><div class="row" style="align-items:flex-end">
+  const riga = (h, i) => `<div style="margin-top:12px"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
+      ${h.dubbio ? `<div class="g-nota att" style="margin-top:6px">⚠️ Questi importi non coincidono con quelli letti dal telefono: controllali bene sul foglio.</div>` : ""}
+      ${h.scegli && !h.nominativo ? `<p class="muted" style="margin:6px 0">Tocca la <b>riga di ${esc(casaInfo(h.casa).nomeCond || h.casa)}</b> (1ª · 2ª · 3ª · 4ª rata):</p>${(R.candidati || []).map((r, k) => `<button class="btn small" data-rc="${i}-${k}" style="display:block;width:100%;text-align:left;margin:4px 0">${r.map(v => euro(v)).join(" · ")}</button>`).join("")}<button class="btn small" data-rman="${i}" style="margin-top:6px">✏️ Non la trovo: scrivo le rate a mano</button>` : ""}
+      ${h.scegli && !h.nominativo ? "" : h.rate.map((x, j) => `<div class="entry" style="flex-wrap:wrap;margin-top:6px"><div class="txt" style="flex:1 1 100%"><div class="row" style="align-items:flex-end">
         <div style="flex:0 0 56px"><label>Rata</label><b style="font-size:16px">${x.numero}ª</b></div>
         <div><label>Scadenza</label><input type="date" data-rs="${i}-${j}" value="${esc(x.scadenza)}"></div>
         <div><label>Importo €</label><input type="number" step="0.01" inputmode="decimal" data-ri="${i}-${j}" value="${esc(x.importo)}"></div></div>
         <div style="margin-top:8px">${x.stato === "pag" ? `<span class="pill pag">✅ Pagata il ${fmtDate(x.pagataIl)}${x.pagataCon ? " · " + esc(x.pagataCon) : ""}</span> <button class="btn small" data-rnp="${i}-${j}">↩️ Da pagare</button>` : `<button class="btn small" data-rp="${i}-${j}">✅ Già pagata</button>`}${x.evidenziata ? ` <span class="pill warn">🖍️ evidenziata nel foglio</span>` : ""} <button class="btn small danger" data-rx="${i}-${j}">Togli</button></div></div></div>`).join("")}
-      <button class="btn small" data-radd="${i}" style="margin-top:6px">＋ Aggiungi una rata</button></div>`;
-  const n = R.righe.reduce((t, h) => t + h.rate.length, 0);
+      ${h.scegli && !h.nominativo ? "" : `<button class="btn small" data-radd="${i}" style="margin-top:6px">＋ Aggiungi una rata</button>`}</div>`;
+  const n = R.righe.filter(h => !(h.scegli && !h.nominativo)).reduce((t, h) => t + h.rate.length, 0);
   return `<div class="card" id="cardRate"><h2>🏢 Rate del condominio</h2>
     ${R.errore ? `<div class="g-nota att">⚠️ ${esc(R.errore)}</div>` : `<p class="muted">Controlla date e importi con il prospetto. Ogni rata diventa una scadenza con il suo avviso.</p>`}
     <label>Condominio</label><input id="rCond" value="${esc(R.condominio)}">
@@ -2062,6 +2111,12 @@ function bindCardRate(){
     const p = await scegliPagamento(x.scadenza && x.scadenza < todayISO() ? x.scadenza : todayISO(), "", R.condominio + " · " + x.numero + "ª rata", x.importo);
     if(p){ Object.assign(x, {stato:"pag", pagataIl:p.data, pagataCon:p.modo}); salvaBozza(); renderAcquisisci(); } });
   document.querySelectorAll("[data-rnp]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rnp); Object.assign(R.righe[i].rate[j], {stato:"da", pagataIl:"", pagataCon:""}); renderAcquisisci(); });
+  document.querySelectorAll("[data-rman]").forEach(b => b.onclick = () => { leggiRate(); R.righe[+b.dataset.rman].scegli = false; salvaBozza(); renderAcquisisci(); });
+  document.querySelectorAll("[data-rc]").forEach(b => b.onclick = () => {
+    leggiRate(); const [i, k] = ij(b.dataset.rc), h = R.righe[i], r = R.candidati[k];
+    h.rate = r.map((v, n) => ({numero:n + 1, scadenza:(R.date || [])[n] || (h.rate[n] && h.rate[n].scadenza) || "", importo:v, stato:"da", pagataIl:"", pagataCon:""}));
+    h.nominativo = casaInfo(h.casa).nomeCond || "scelta da te"; h.scegli = false; salvaBozza(); renderAcquisisci();
+  });
   document.querySelectorAll("[data-rx]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rx); R.righe[i].rate.splice(j, 1); renderAcquisisci(); });
   document.querySelectorAll("[data-radd]").forEach(b => b.onclick = () => { leggiRate(); const h = R.righe[+b.dataset.radd]; h.rate.push({numero:h.rate.length + 1, scadenza:"", importo:"", stato:"da"}); renderAcquisisci(); });
   $("#rRiprova").onclick = () => { leggiRate(); draft.rate.stato = "cerco"; renderAcquisisci(); cercaRate(); };
@@ -2071,7 +2126,7 @@ function bindCardRate(){
 async function salvaRate(){
   leggiRate();
   const R = draft.rate, o = $("#rOut"), tutte = [];
-  R.righe.forEach(h => h.rate.forEach(x => tutte.push({h, x})));
+  R.righe.filter(h => !(h.scegli && !h.nominativo)).forEach(h => h.rate.forEach(x => tutte.push({h, x})));
   if(!tutte.length){ esito(o, false, "Non ci sono rate da salvare."); return; }
   if(tutte.some(({x}) => !x.scadenza || !(Number(x.importo) > 0))){ esito(o, false, "Ogni rata deve avere scadenza e importo (oppure toglila)."); return; }
   if(!R.condominio){ esito(o, false, "Scrivi il nome del condominio."); return; }
@@ -2507,6 +2562,7 @@ function renderGuida(){
     <p>L'amministratore manda un <b>prospetto</b> con tutti i condòmini e le rate dell'anno. Da pagare sono solo le <b>4 colonne delle rate</b> (1ª, 2ª, 3ª, 4ª) con le loro date.</p>
     ${passo(1, "Tocca <b>Acquisisci</b>, scegli la casa e fai la <b>foto del prospetto</b> (o condividi il PDF). L'app capisce da sola che è un prospetto di rate.")}
     ${passo(2, "La prima volta scrivi <b>come ti chiami nel foglio del condominio</b> per ogni casa (per esempio <i>TELAROLI SILVIA</i>). L'app se lo ricorda. Puoi cambiarlo anche in <b>Impostazioni → Le mie case → Nome nel condominio</b>. Poi tocca <b>Cerca le mie rate</b>.")}
+    ${passo("3a", "Se la lettura online non risponde, il telefono mostra l'<b>elenco delle righe</b> della tabella (1ª · 2ª · 3ª · 4ª rata). Tocca la <b>tua riga</b>: le 4 rate si compilano da sole con le date. Se non la trovi tocca <b>Scrivo le rate a mano</b>.")}
     ${passo(3, "Controlla per ogni casa le 4 rate: <b>data</b> e <b>importo</b>. Se una cella del foglio era colorata, accanto c'è scritto <b>🖍️ evidenziata nel foglio</b>.")}
     ${passo(4, "Per le rate già pagate tocca <b>✅ Già pagata</b> e scegli come (contanti, home banking…). Le altre restano «da pagare».")}
     ${passo(5, "Tocca <b>Salva</b>: ogni rata diventa una scadenza con il suo avviso, nella cartella del condominio di quella casa, con la foto del prospetto.")}
