@@ -23,6 +23,9 @@ jobs:
         with:
           gradle-version: "8.14.3"
 
+      - name: Controllo del codice (anche senza chiave)
+        run: gradle :app:compileReleaseJavaWithJavac --stacktrace
+
       - name: Chiave di firma (dai Secrets del repository)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
