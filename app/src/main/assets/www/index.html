@@ -504,7 +504,12 @@ function periodoBreve(b){
   return y1 === y2 ? `${M(m1)} – ${M(m2)} ${y1}` : `${M(m1)} ${y1} – ${M(m2)} ${y2}`;
 }
 /* data di riferimento per grafici e anni: fine del periodo, altrimenti emissione, altrimenti scadenza */
-const dataRif = b => b.periodoA || b.emessa || b.scadenza || "";
+// mese a cui appartiene la spesa: fine del periodo; per le rate (condominio, TARI/IMU a rate) e per i periodi lunghi conta la scadenza
+const dataRif = b => {
+  const lungo = b.periodoDa && b.periodoA && (new Date(b.periodoA) - new Date(b.periodoDa)) / 864e5 > 120;
+  if(b.scadenza && (/\brata\b/i.test(b.numero || "") || lungo)) return b.scadenza;
+  return b.periodoA || b.emessa || b.scadenza || "";
+};
 
 /* =========================================================
    Lettura della bolletta: testo -> dati
@@ -1254,8 +1259,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.25";
+const VERSIONE = "v1.26";
 const CRONOLOGIA = [
+  {v:"v1.26", d:"21/11/2026", n:["Grafici e spesa dell'anno: le rate del condominio contano nel mese della loro scadenza (prima finivano tutte a febbraio 2027, fine della gestione). Vale anche per le rate già salvate: non serve rifare niente.", "Per le bollette con periodo lungo (annuali) conta la scadenza."]},
   {v:"v1.25", d:"21/11/2026", n:["Lettura: date scritte attaccate (es. «14 Marzo2026»), indirizzo di fornitura anche se è qualche riga più sotto, consumo «29mc» letto anche quando sotto c'è il consumo annuo."]},
   {v:"v1.24", d:"21/11/2026", n:["In Scadenze il pulsante sotto ogni bolletta ora dice «💶 L'ho pagata: segnala» (prima «✅ Pagata» sembrava già pagata). La spunta verde ✅ compare solo sulle bollette davvero pagate."]},
   {v:"v1.23", d:"21/11/2026", n:["In Acquisisci, sotto «Leggi di nuovo», c'è «📋 Incolla il testo copiato»: puoi incollare il testo estratto dalla galleria Xiaomi e l'app legge quello."]},
@@ -2079,7 +2085,7 @@ async function renderGrafici(){
     </div>
     <div class="card"><h2>Spesa per mese</h2>
       <div class="vb">${mc.map((v, i) => `<div class="vbc"><div class="vbt"><div class="vbf" style="background:#cbd5e1;width:45%;height:${mp[i] / max * 100}%"></div><div class="vbf" style="width:55%;height:${v / max * 100}%"></div></div><div class="vbk">${MESI[i]}</div></div>`).join("")}</div>
-      <p class="muted" style="margin:8px 0 0"><span style="color:var(--accent)">■</span> ${grafAnno} &nbsp; <span style="color:#94a3b8">■</span> ${prev} · il mese è quello di fine periodo della bolletta</p></div>
+      <p class="muted" style="margin:8px 0 0"><span style="color:var(--accent)">■</span> ${grafAnno} &nbsp; <span style="color:#94a3b8">■</span> ${prev} · il mese è quello di fine periodo della bolletta; per le rate e le bollette annuali conta la scadenza</p></div>
     ${enti.length > 1 || !grafTipo ? `<div class="card"><h2>Spesa per ente</h2>${enti.map(([k, v]) => `<div class="hb"><div class="hbl"><span>${esc(k)}</span><b>${esc(euro(v))}</b></div><div class="hbt"><div class="hbf" style="width:${v / maxE * 100}%"></div></div></div>`).join("") || `<p class="muted">Nessuna bolletta nel ${grafAnno}.</p>`}</div>` : ""}
     ${conCons.length ? `<div class="card"><h2>Consumi ${esc(grafTipo)} (ultime ${conCons.length} bollette)</h2>${conCons.map(b => `<div class="hb"><div class="hbl"><span>${esc(periodoBreve(b) || fmtDate(dataRif(b)))}</span><b>${esc(String(b.consumo).replace(".", ","))} ${esc(b.unita)}</b></div><div class="hbt"><div class="hbf" style="width:${Number(b.consumo) / maxC * 100}%"></div></div></div>`).join("")}</div>` : grafTipo ? "" : `<p class="muted" style="margin:4px">Tocca un tipo (es. 💡 Luce) per vedere anche i consumi.</p>`}
     ${!list.length ? `<div class="card muted">Servono bollette con importo per disegnare i grafici.</div>` : ""}`;
@@ -2187,7 +2193,7 @@ function cardRate(){
     <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div>
     <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
   if(R.stato === "cerco") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate</h2><div class="status"><span class="spinner"></span>Cerco le tue righe nella tabella…</div></div>`;
-  const riga = (h, i) => h.escluso ? `<div style="margin-top:12px;opacity:.7"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">· non è in questo condominio</span> <button class="btn small" data-rsi="${i}">Sì, c'è</button></div>` : `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
+  const riga = (h, i) => h.escluso ? `<div style="margin-top:12px;opacity:.7"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">· non è in questo condominio</span> <button class="btn small" data-rsi="${i}">Sì, c'è</button></div>` : `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo === "scelta da te" ? "· riga scelta da te" : h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
       ${h.dubbio ? `<div class="g-nota att" style="margin-top:6px">⚠️ Questi importi non coincidono con quelli letti dal telefono: controllali bene sul foglio.</div>` : ""}
       ${h.scegli && !h.nominativo ? `<div class="g-nota" style="margin:8px 0">👉 Guarda sul foglio la riga ${nomeValido(casaInfo(h.casa).nomeCond) ? `di <b>${esc(casaInfo(h.casa).nomeCond)}</b>` : `di <b>${esc(h.casa)}</b> (il nome di chi abita lì)`} e <b>tocca qui sotto la riga con gli stessi importi</b>.</div>
         <div class="rtab"><div class="rth">${[0, 1, 2, 3].map(n => `<span>${n + 1}ª rata${(R.date || [])[n] ? "<br>" + esc(fmtDate(R.date[n]).slice(0, 5)) : ""}</span>`).join("")}</div>
@@ -2266,7 +2272,7 @@ async function salvaRate(){
     esito(o, null, `Salvo la rata ${fatte + saltate + 1} di ${tutte.length}…`);
     const n = Object.assign(newDraft(), {casa:h.casa, ente:R.condominio, tipo:"Condominio", importo:Number(x.importo), scadenza:x.scadenza,
       numero:`${x.numero}ª rata${h.rate.length ? " di " + h.rate.length : ""}`, periodoDa:R.gestioneDa || "", periodoA:R.gestioneA || "",
-      stato:x.stato === "pag" ? "pag" : "da", pagataIl:x.pagataIl || "", pagataCon:x.pagataCon || "", note:`${x.numero}ª rata${h.nominativo ? " · " + h.nominativo : ""}`, datiAuto:true});
+      stato:x.stato === "pag" ? "pag" : "da", pagataIl:x.pagataIl || "", pagataCon:x.pagataCon || "", note:`${x.numero}ª rata${h.nominativo && h.nominativo !== "scelta da te" ? " · " + h.nominativo : ""}`, datiAuto:true});
     const pc = perCasa[h.casa] = perCasa[h.casa] || {fatte:0, gia:0};
     if(await doppione(n)){ saltate++; pc.gia++; continue; }
     if(me){ n.aggiuntoDa = me.nome; n.aggiuntoDaId = me.id; n.aggiuntoIl = ora; }
