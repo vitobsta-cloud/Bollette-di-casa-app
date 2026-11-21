@@ -280,6 +280,17 @@ pre.ocr{white-space:pre-wrap;font-size:12px;background:#f6f7f9;border-radius:8px
 .rtr{border:0;border-top:1px solid #eee;background:#fff;font:inherit;font-size:15.5px;color:var(--text);cursor:pointer}
 .rtr:active{background:#ccfbf1}
 
+.entry .t2{white-space:normal;overflow:visible}
+.entry .t2 .sotto2{display:block;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bollino{display:inline-block;margin-top:4px;padding:5px 10px;border-radius:12px;text-align:center;line-height:1.25;background:#f1f5f9;color:#334155}
+.bollino .b1{display:block;font-size:13px;font-weight:700}
+.bollino .b2{display:block;font-size:12px;font-weight:600}
+.bollino.bad{background:#fee2e2;color:#b91c1c}
+.bollino.warn{background:#ffedd5;color:#c2410c}
+.bollino.fut,.bollino.none{background:#e0f2fe;color:#075985}
+.bollino.pag{background:#dcfce7;color:#166534}
+.bollino.dom{background:#ede9fe;color:#5b21b6}
+
 </style>
 </head>
 <body>
@@ -1196,8 +1207,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.17";
+const VERSIONE = "v1.18";
 const CRONOLOGIA = [
+  {v:"v1.18", d:"21/11/2026", n:["Bollini più chiari: c'è sempre la data di scadenza e sotto quanto manca (oggi, domani, tra 10 giorni, scaduta da…), con colori: rosso scaduta o oggi, arancio entro 7 giorni, azzurro più avanti, verde pagata.", "Per le rate del condominio sotto il nome si vede «4ª rata di 4»."]},
   {v:"v1.17", d:"21/11/2026", n:["Rate del condominio: in fondo c'è «🗑️ Ricomincia da capo» per togliere le foto e ripartire."]},
   {v:"v1.16", d:"21/11/2026", n:["Rate del condominio più chiare: le righe del foglio sono in una tabellina con le date in alto, tocchi quella con i tuoi importi.", "Ogni rata ha i due pulsanti «Da pagare» / «Già pagata», come nel modulo: si vede subito com'è.", "L'importo si scrive con la virgola (es. 159,67).", "«Rileggi» funziona anche dopo un aggiornamento dell'app."]},
   {v:"v1.15", d:"21/11/2026", n:["Rate del condominio: il telefono legge da solo la tabella. Se Google non risponde, tocchi la tua riga nell'elenco e le 4 rate si compilano con le date.", "Le foto del prospetto vanno a Google più leggere e con più tempo per rispondere.", "Se gli importi di Google non coincidono con quelli letti dal telefono, l'app lo segnala."]},
@@ -1771,10 +1783,25 @@ async function renderEnte(k){
 }
 function entryHTML(a){
   const s = statoInfo(a), ti = tipoInfo(a.tipo), nv = nuovoPerMe(a);
+  const sotto = /rata/i.test(a.numero || "") && normTipo(a.tipo) === "Condominio" ? a.numero : (periodoBreve(a) || a.tipo || "");
   return `<div class="entry${nv ? " nuovo" : ""}" data-id="${esc(a.id)}"><div class="ico" style="background:${ti.bg}">${ti.ic}</div>
     <div class="txt"><div class="t1">${esc(a.ente || "(senza ente)")}${nv ? ` <span class="pill nuovo">NUOVO</span>` : ""}</div>
-      <div class="t2">${pillCasa(a)}${esc(periodoBreve(a) || a.tipo || "")}${a.scadenza ? " · scad. " + fmtDate(a.scadenza) : ""}${piuUtenti() && a.aggiuntoDa ? " · da " + esc(a.aggiuntoDa) : ""}</div></div>
-    <div class="r"><b>${esc(euro(a.importo) || "—")}</b><span class="pill ${s.cls}">${esc(s.label.replace(/ · .*/, "").replace(/^Da pagare entro il .*/, "Da pagare"))}</span>${a.daCaricare ? `<br><span class="pill up">⏳ da caricare</span>` : ""}</div></div>`;
+      <div class="t2">${pillCasa(a)}<span class="sotto2">${esc(sotto)}${piuUtenti() && a.aggiuntoDa ? " · da " + esc(a.aggiuntoDa) : ""}</span></div></div>
+    <div class="r"><b>${esc(euro(a.importo) || "—")}</b>${bollinoScadenza(a, s)}${a.daCaricare ? `<br><span class="pill up">⏳ da caricare</span>` : ""}</div></div>`;
+}
+/* Bollino a destra: sempre con la data, e sotto quanto manca */
+function bollinoScadenza(a, s){
+  const d = a.scadenza ? fmtDate(a.scadenza) : "";
+  let riga1, riga2 = "";
+  if(a.stato === "pag"){ riga1 = "✅ Pagata"; riga2 = a.pagataIl ? "il " + fmtDate(a.pagataIl) : ""; }
+  else if(a.stato === "dom"){ riga1 = "🏦 Domiciliata"; riga2 = d ? "addebito " + d : ""; }
+  else if(!d){ riga1 = "Da pagare"; riga2 = "scadenza mancante"; }
+  else{
+    const g = s.giorni;
+    riga1 = "Scade " + d;
+    riga2 = g < 0 ? `scaduta da ${-g} ${-g === 1 ? "giorno" : "giorni"}` : g === 0 ? "OGGI" : g === 1 ? "domani" : `tra ${g} giorni`;
+  }
+  return `<span class="bollino ${s.cls}"><span class="b1">${esc(riga1)}</span>${riga2 ? `<span class="b2">${esc(riga2)}</span>` : ""}</span>`;
 }
 function bindEntries(){ document.querySelectorAll(".entry[data-id]").forEach(e => e.onclick = ev => { if(ev.target.closest("[data-pay]")) return; setView("dettaglio", e.dataset.id); }); }
 
