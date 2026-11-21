@@ -741,12 +741,17 @@ const PROMPT_LETTURA = () => `Leggi questa bolletta/fattura italiana (luce, gas,
 domiciliata = true SOLO se la bolletta dice che QUESTO importo verrà addebitato automaticamente sul conto corrente (domiciliazione attiva, SDD, RID). Se c'è un bollettino, un codice avviso PagoPA o CBILL da pagare, oppure la bolletta propone soltanto di attivare la domiciliazione, domiciliata = false. Se un dato non c'è lascialo vuoto. Oggi è ${todayISO()}.`;
 async function geminiCall(body, model){
   const s = settings();
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || s.geminiModel || DEFAULTS.geminiModel)}:generateContent`, {method:"POST", headers:{"content-type":"application/json", "x-goog-api-key":s.geminiKey}, body:JSON.stringify(body)});
-  const j = await r.json().catch(() => ({}));
-  return {status:r.status, j};
+  // ogni richiesta ha un tempo massimo: se Google non risponde si passa oltre invece di girare per sempre
+  const ac = new AbortController(), t = setTimeout(() => ac.abort(), 25000);
+  try{
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || s.geminiModel || DEFAULTS.geminiModel)}:generateContent`, {method:"POST", headers:{"content-type":"application/json", "x-goog-api-key":s.geminiKey}, body:JSON.stringify(body), signal:ac.signal});
+    const j = await r.json().catch(() => ({}));
+    return {status:r.status, j};
+  }catch(e){ return {status:408, j:{error:{message:ac.signal.aborted ? "Google non ha risposto entro 25 secondi" : "nessuna connessione a Google"}}}; }
+  finally{ clearTimeout(t); }
 }
 async function geminiModelli(){
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {headers:{"x-goog-api-key":settings().geminiKey}});
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {headers:{"x-goog-api-key":settings().geminiKey}, signal:AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined});
   const j = await r.json().catch(() => ({}));
   const nomi = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent")).map(m => m.name.replace(/^models\//, ""))
     .filter(n => /flash/.test(n) && !/image|tts|live|audio|thinking|exp/.test(n));
@@ -758,7 +763,7 @@ async function geminiModelli(){
 async function geminiSicuro(body){
   let res = await geminiCall(body);
   if(res.status === 200) return res;
-  const occupato = [500, 503, 404].includes(res.status) || (res.status === 400 && /model/i.test(res.j.error?.message || "")) || res.status === 429;
+  const occupato = [500, 503, 404, 408].includes(res.status) || (res.status === 400 && /model/i.test(res.j.error?.message || "")) || res.status === 429;
   if(!occupato) return res;
   let altri = [];
   try{ altri = (await geminiModelli()).filter(m => m !== settings().geminiModel); }catch(e){}
@@ -771,7 +776,7 @@ async function geminiSicuro(body){
 }
 async function geminiModelloValido(){
   // se il modello predefinito non esiste più, sceglie da solo il "flash" più recente disponibile
-  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {headers:{"x-goog-api-key":settings().geminiKey}});
+  const r = await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", {headers:{"x-goog-api-key":settings().geminiKey}, signal:AbortSignal.timeout ? AbortSignal.timeout(15000) : undefined});
   const j = await r.json().catch(() => ({}));
   const nomi = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent")).map(m => m.name.replace(/^models\//, ""))
     .filter(n => /flash/.test(n) && !/lite|image|tts|live|audio|thinking|exp/.test(n));
@@ -1153,8 +1158,11 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.7";
+const VERSIONE = "v1.8";
 const CRONOLOGIA = [
+  {v:"v1.8", d:"21/11/2026", n:[
+    "Lettura online e «Verifica»: se Google non risponde entro 25 secondi l'app passa oltre e lo dice, invece di restare a girare"
+  ]},
   {v:"v1.7", d:"21/11/2026", n:[
     "Lettura online: se un modello di Google ha finito il limite, l'app prova da sola gli altri modelli gratuiti",
     "«Verifica» della chiave Google dice esattamente cosa risponde Google (occupato, limite del minuto o limite del giorno)",
@@ -2243,6 +2251,7 @@ function renderImpLett(){
         esito(o, false, giorno ? "La chiave è giusta, ma ha finito il limite gratuito di OGGI (è la stessa chiave di Garanzie?). Riprova domani, oppure crea una seconda chiave in un PROGETTO NUOVO solo per Bollette." : "La chiave è giusta, ma ha superato il limite del minuto: riprova tra un minuto.");
         if(msg) o.insertAdjacentHTML("beforeend", `<p class="muted" style="margin-top:6px">Risposta di Google: ${esc(msg.slice(0, 220))}</p>`);
       }
+      else if(status === 408) esito(o, false, "Google non risponde (" + (j.error?.message || "") + "). Se la chiave è nuova, aspetta 2-3 minuti e riprova: Google ci mette un po' ad attivarla.");
       else if(status === 503 || status === 500) esito(o, true, "La chiave è giusta ✔ ma i server di Google adesso sono sovraccarichi (errore " + status + "): riprova tra qualche minuto.");
       else if(status === 400 || status === 403) esito(o, false, "Chiave non valida: ricopiala da aistudio.google.com/apikey.");
       else esito(o, false, "Errore " + status + ": " + (j.error?.message || ""));
