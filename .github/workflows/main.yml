@@ -29,8 +29,10 @@ jobs:
       - name: Chiave di firma (dai Secrets del repository)
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ]; then echo "Manca il secret KEYSTORE_BASE64"; exit 1; fi
+          if [ -z "$KEYSTORE_BASE64" ]; then echo "::error::Manca il secret KEYSTORE_BASE64"; exit 1; fi
+          if [ -z "$KEYSTORE_PASSWORD" ]; then echo "::error::Manca il secret KEYSTORE_PASSWORD (controlla il nome, tutto maiuscolo)"; exit 1; fi
           echo "$KEYSTORE_BASE64" | base64 -d > app/firma.keystore
 
       - name: Compila
