@@ -448,7 +448,7 @@ const caseCasa = () => settings().case || [];
 const piuCase = () => caseCasa().length > 1;
 const casaInfo = nome => caseCasa().find(c => c.nome === nome) || {nome:nome || "", icona:"🏠", indirizzo:""};
 const ICONE_CASA = ["🏠","👵","👴","🏡","🏖️","⛰️","🏢","🏬","🌳","🚗"];
-const MODI_PAGAMENTO = ["PagoPA", "App della banca", "CBILL", "Bollettino postale", "Bonifico", "Carta", "Contanti", "Altro"];
+const MODI_PAGAMENTO = ["Contanti", "Bancomat", "Carta di credito", "Home banking", "PagoPA", "Bollettino postale", "Bonifico", "Altro"];
 function newDraft(){
   return {id:"", cartella:"", casa: caseCasa().length === 1 ? caseCasa()[0].nome : "", ente:"", tipo:"", importo:"", scadenza:"", emessa:"", numero:"", periodoDa:"", periodoA:"",
     stato:"da", pagataIl:"", pagataCon:"", codiceCliente:"", pod:"", indirizzo:"", consumo:"", unita:"", lettura:"", note:"",
@@ -1139,8 +1139,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.3";
+const VERSIONE = "v1.4";
 const CRONOLOGIA = [
+  {v:"v1.4", d:"21/11/2026", n:[
+    "«Leggi di nuovo» rimette sempre la bolletta su «Da pagare» (se non l'hai cambiato tu): niente più «Domiciliata» rimasto da prima",
+    "Modi di pagamento: Contanti, Bancomat, Carta di credito, Home banking, PagoPA, Bollettino postale, Bonifico, Altro"
+  ]},
   {v:"v1.3", d:"21/11/2026", n:[
     "Più case: Impostazioni → Le mie case (la tua, quella della mamma…). Nell'archivio ogni casa ha la sua cartella con dentro i fornitori",
     "Acquisisci chiede per prima cosa «Per quale casa?»; con Condividi la casa viene riconosciuta da indirizzo, codice cliente o POD",
@@ -1310,7 +1314,7 @@ async function renderAcquisisci(edit){
   $("#fTipo").value = draft.tipo || "";
   const setStato = s => { draft.stato = s; document.querySelectorAll("#segStato button").forEach(b => b.classList.toggle("on", b.dataset.s === s)); $("#rowPagata").classList.toggle("hidden", s !== "pag"); if(s === "pag" && !$("#fPagataIl").value){ $("#fPagataIl").value = todayISO(); } };
   setStato(draft.stato || "da");
-  document.querySelectorAll("#segStato button").forEach(b => b.onclick = () => { readForm(); setStato(b.dataset.s); readForm(); updPreview(); salvaBozza(); });
+  document.querySelectorAll("#segStato button").forEach(b => b.onclick = () => { readForm(); draft._statoScelto = true; setStato(b.dataset.s); readForm(); updPreview(); salvaBozza(); });
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
   bindCardCasa();
@@ -1457,6 +1461,8 @@ async function doLeggi(){
         const x = incrocia(r, on); r = x.r; dubbiLettura = x.dubbi; modoLettura = "incrocio";
       }catch(e){ modoLettura = "solo telefono: online non riuscito – " + String(e.message || e).split("\n")[0].slice(0, 140); }
     }
+    // lo stato lo decide solo l'utente: se non l'ha toccato, una bolletta letta è sempre "da pagare"
+    if(!draft._edit && !draft._statoScelto) draft.stato = "da";
     // in modifica completa solo i campi vuoti
     const trovati = [];
     for(const k of ["ente","tipo","importo","scadenza","emessa","numero","periodoDa","periodoA","codiceCliente","pod","indirizzo","consumo","unita","lettura","note"]){
@@ -1722,7 +1728,7 @@ async function cambiaStato(a, campi){
 function dialogoPagata(a){
   return new Promise(res => {
     const m = document.createElement("div"); m.className = "modal";
-    const ultimo = settings().ultimoModo || "PagoPA";
+    const ultimo = MODI_PAGAMENTO.includes(settings().ultimoModo) ? settings().ultimoModo : "Contanti";
     m.innerHTML = `<div class="box"><h2>✅ Segna come pagata</h2><p class="muted" style="margin:2px 0 6px">${esc(a.ente || "")} · ${esc(euro(a.importo))}</p>
       <label>Pagata il</label><input type="date" id="pgData" value="${todayISO()}">
       <label>Come</label><div class="seg" id="pgModo">${MODI_PAGAMENTO.map(x => `<button data-m="${esc(x)}"${x === ultimo ? ' class="on"' : ""}>${esc(x)}</button>`).join("")}</div>
