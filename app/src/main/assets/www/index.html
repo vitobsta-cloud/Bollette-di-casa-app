@@ -758,11 +758,11 @@ async function geminiModelli(){
 async function geminiSicuro(body){
   let res = await geminiCall(body);
   if(res.status === 200) return res;
-  const occupato = [500, 503, 404].includes(res.status) || (res.status === 400 && /model/i.test(res.j.error?.message || "")) || (res.status === 429 && !/per day|daily/i.test(res.j.error?.message || ""));
+  const occupato = [500, 503, 404].includes(res.status) || (res.status === 400 && /model/i.test(res.j.error?.message || "")) || res.status === 429;
   if(!occupato) return res;
   let altri = [];
   try{ altri = (await geminiModelli()).filter(m => m !== settings().geminiModel); }catch(e){}
-  for(const m of altri.slice(0, 5)){
+  for(const m of altri.slice(0, 8)){
     const r2 = await geminiCall(body, m);
     if(r2.status === 200){ saveSettings({geminiModel:m}); return r2; }
     res = r2;
@@ -1153,8 +1153,13 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.6";
+const VERSIONE = "v1.7";
 const CRONOLOGIA = [
+  {v:"v1.7", d:"21/11/2026", n:[
+    "Lettura online: se un modello di Google ha finito il limite, l'app prova da sola gli altri modelli gratuiti",
+    "«Verifica» della chiave Google dice esattamente cosa risponde Google (occupato, limite del minuto o limite del giorno)",
+    "A Google viene mandata solo la prima foto o pagina, rimpicciolita: risponde più in fretta"
+  ]},
   {v:"v1.6", d:"21/11/2026", n:[
     "«Già pagata» apre subito la finestra con il giorno e il modo (Contanti, Bancomat, Home banking…), nello stile dell'app",
     "Lettura: la scadenza non viene più confusa con l'inizio del periodo; letto anche il periodo scritto «01/09/2026 - 30/09/2026»",
@@ -1475,6 +1480,17 @@ function evidenziaDubbi(){
     el.addEventListener("input", () => { el.classList.remove("giallo"); h.remove(); delete dubbiLettura[k]; }, {once:true}); };
   ev("fScadenza", "scadenza", fmtDate); ev("fImporto", "importo", v => euro(v));
 }
+/* A Google va solo il primo documento: il PDF così com'è, la foto rimpicciolita (risponde prima e consuma meno) */
+async function perGoogle(docs){
+  const f = docs.find(d => d.mime === "application/pdf") || docs[0];
+  if(!f || !f.mime.startsWith("image/")) return [f];
+  try{
+    const img = await loadImage(dataUrl(f)), k = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    return [{name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.8).split(",")[1]}];
+  }catch(e){ return [f]; }
+}
 async function doLeggi(){
   const giaSalvati = documenti(draft);
   if(!draft.pendingFiles.length && !(draft._edit && giaSalvati.length)){ toast("Prima scegli il PDF o fai una foto.", true); return; }
@@ -1491,7 +1507,7 @@ async function doLeggi(){
     if(settings().geminiKey && settings().incrocio !== false){
       msg("Letta sul telefono ✓ · controllo anche online…");
       try{
-        const on = await Promise.race([geminiRead(docs.slice(0, 3)), new Promise((_, no) => setTimeout(() => no(new Error("Google non ha risposto in tempo")), 75000))]);
+        const on = await Promise.race([geminiRead(await perGoogle(docs)), new Promise((_, no) => setTimeout(() => no(new Error("Google non ha risposto in tempo")), 75000))]);
         const x = incrocia(r, on); r = x.r; dubbiLettura = x.dubbi; modoLettura = "incrocio";
       }catch(e){ modoLettura = "solo telefono: online non riuscito – " + String(e.message || e).split("\n")[0].slice(0, 140); }
     }
@@ -2222,7 +2238,12 @@ function renderImpLett(){
     try{
       const {status, j} = await geminiSicuro({contents:[{parts:[{text:"Rispondi solo OK"}]}]});
       if(status === 200) esito(o, true, "Funziona! Le bollette verranno controllate anche online.");
-      else if(status === 503 || status === 500 || status === 429) esito(o, true, "La chiave è giusta ✔ ma Google adesso è molto occupato: funzionerà appena si libera.");
+      else if(status === 429){
+        const msg = String(j.error?.message || ""), giorno = /per\s*day|daily|PerDay/i.test(msg);
+        esito(o, false, giorno ? "La chiave è giusta, ma ha finito il limite gratuito di OGGI (è la stessa chiave di Garanzie?). Riprova domani, oppure crea una seconda chiave in un PROGETTO NUOVO solo per Bollette." : "La chiave è giusta, ma ha superato il limite del minuto: riprova tra un minuto.");
+        if(msg) o.insertAdjacentHTML("beforeend", `<p class="muted" style="margin-top:6px">Risposta di Google: ${esc(msg.slice(0, 220))}</p>`);
+      }
+      else if(status === 503 || status === 500) esito(o, true, "La chiave è giusta ✔ ma i server di Google adesso sono sovraccarichi (errore " + status + "): riprova tra qualche minuto.");
       else if(status === 400 || status === 403) esito(o, false, "Chiave non valida: ricopiala da aistudio.google.com/apikey.");
       else esito(o, false, "Errore " + status + ": " + (j.error?.message || ""));
     }catch(e){ esito(o, false, "Nessuna risposta: controlla internet. (" + e.message + ")"); }
