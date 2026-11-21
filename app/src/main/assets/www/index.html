@@ -1254,8 +1254,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.23";
+const VERSIONE = "v1.24";
 const CRONOLOGIA = [
+  {v:"v1.24", d:"21/11/2026", n:["In Scadenze il pulsante sotto ogni bolletta ora dice «💶 L'ho pagata: segnala» (prima «✅ Pagata» sembrava già pagata). La spunta verde ✅ compare solo sulle bollette davvero pagate."]},
   {v:"v1.23", d:"21/11/2026", n:["In Acquisisci, sotto «Leggi di nuovo», c'è «📋 Incolla il testo copiato»: puoi incollare il testo estratto dalla galleria Xiaomi e l'app legge quello."]},
   {v:"v1.22", d:"21/11/2026", n:["Lettura sul telefono: riconosce A2A Ciclo Idrico (acqua) e non la scambia più per luce.", "Legge la scadenza nei riquadri «Entro quando?» anche se giorno, mese e anno sono su tre righe (09 / Aprile / 2026).", "Legge il codice POD dell'acqua (solo numeri) e il consumo in metri cubi."]},
   {v:"v1.21", d:"21/11/2026", n:["Lettura sul telefono migliorata (bollette Enel): la scadenza è quella di «Quando scade?», non la fine dell'offerta; il periodo è quello della bolletta, non il consumo annuo.", "Letti anche numero e data della fattura elettronica, N° cliente, POD e consumo del periodo con «Consumi rilevati»."]},
@@ -1906,7 +1907,7 @@ async function renderDettaglio(id){
       ${kv("Cartella", esc(a.cartella.replace(/\//g, " / ")))}
       </div>
       ${a.note ? `<label>Note</label><div style="white-space:pre-wrap">${esc(a.note)}</div>` : ""}
-      ${daPagare(a) ? `<div class="btns"><button class="btn primary" id="bPagata" style="background:var(--ok);border-color:var(--ok)">✅ Segna come pagata</button></div>` : a.stato === "pag" ? `<div class="btns"><button class="btn small" id="bNonPagata">↩️ Non è pagata</button></div>` : ""}
+      ${daPagare(a) ? `<div class="btns"><button class="btn primary" id="bPagata">💶 L'ho pagata: segnala</button></div>` : a.stato === "pag" ? `<div class="btns"><button class="btn small" id="bNonPagata">↩️ Non è pagata</button></div>` : ""}
       <label>Documenti (tocca per aprire)</label>
       <div class="thumbs" id="dThumbs">${files.map((f, i) => `<div class="thumb" data-i="${i}">${f.local && f.mime.startsWith("image/") ? `<img src="${dataUrl(f)}">` : (isImg(f.name) ? "🖼️" : "📄") + "<br>" + esc(f.name.slice(0, 22))}</div>`).join("") || `<span class="muted">Nessuno.</span>`}</div>
       ${puoModificare(a) && piuCase() && !a.daCaricare ? `<div class="btns"><button class="btn" id="bSposta">🏠 Sposta in un'altra casa</button></div>` : ""}
@@ -2011,7 +2012,7 @@ async function dialogoPagata(a){
    SCADENZE
    ========================================================= */
 function rigaPagabile(a){
-  return entryHTML(a).replace(/<\/div>\s*$/, `${puoModificare(a) ? `<button class="btn small pagbtn" data-pay="${esc(a.id)}" style="color:var(--ok);border-color:#bfe3c9">✅ Pagata</button>` : ""}</div>`).replace('class="entry', 'style="flex-wrap:wrap" class="entry');
+  return entryHTML(a).replace(/<\/div>\s*$/, `${puoModificare(a) ? `<button class="btn small pagbtn" data-pay="${esc(a.id)}">💶 L'ho pagata: segnala</button>` : ""}</div>`).replace('class="entry', 'style="flex-wrap:wrap" class="entry');
 }
 async function renderScadenze(){
   const list = (await allBollette()).filter(nellaCasa), dp = list.filter(daPagare).sort((x, y) => (x.scadenza || "9999").localeCompare(y.scadenza || "9999"));
@@ -2709,13 +2710,13 @@ function renderGuida(){
       schermo("Archivio", riga("💡", "#fef3c7", "Enel Energia", "Luce · 6 bollette", "612,30 €", `<small>nel 2026</small>`, true) + riga("🔥", "#fee2e2", "Italgas", "Gas · 6 bollette", "845,10 €", `<small>nel 2026</small>`)))}
     ${passo(2, "Tocca un ente per vedere tutte le sue bollette, poi tocca una bolletta per aprire la <b>scheda</b>. Tocca un documento per aprire il PDF.")}
     ${passo(3, "Per cercare scrivi una parola in alto: l'ente, il numero della fattura, l'importo o l'anno (es. <i>enel 2025</i>).")}
-    ${passo(4, "Nella scheda trovi: <b>✅ Segna come pagata</b>, <b>✏️ Modifica</b>, <b>🖨️ Stampa</b>, <b>🗑️ Elimina</b>.")}
+    ${passo(4, "Nella scheda trovi: <b>💶 L'ho pagata: segnala</b>, <b>✏️ Modifica</b>, <b>🖨️ Stampa</b>, <b>🗑️ Elimina</b>.")}
     ${att("<b>Elimina</b> cancella davvero la cartella con i documenti dal NAS: non si può annullare.")}`),
 
   cap("scadenze", "⏰", "Scadenze, avvisi e «Pagata»", `
     ${passo(1, "In <b>Scadenze</b> trovi le bollette da pagare, la più vicina in alto: prima quelle <b>scadute</b>, poi quelle <b>entro 7 giorni</b>, poi le altre.",
-      schermo("Scadenze", `<div class="g-row g-stats"><span class="g-stat bad"><b>0</b>Scadute</span><span class="g-stat warn"><b>2</b>Entro 7 giorni</span><span class="g-stat ok"><b>151€</b>Da pagare</span></div>` + riga("🔥", "#fee2e2", "Italgas", "scad. 24/11/2026", "64,20 €", `<span class="g-btn g-tocca" style="padding:2px 6px">✅ Pagata</span>`)))}
-    ${passo(2, "Quando hai pagato tocca <b>✅ Pagata</b>, scegli il giorno e come hai pagato (PagoPA, app della banca, posta…) e tocca <b>Conferma</b>. Gli avvisi per quella bolletta si fermano.")}
+      schermo("Scadenze", `<div class="g-row g-stats"><span class="g-stat bad"><b>0</b>Scadute</span><span class="g-stat warn"><b>2</b>Entro 7 giorni</span><span class="g-stat ok"><b>151€</b>Da pagare</span></div>` + riga("🔥", "#fee2e2", "Italgas", "scad. 24/11/2026", "64,20 €", `<span class="g-btn g-tocca" style="padding:2px 6px">💶 L'ho pagata</span>`)))}
+    ${passo(2, "Quando hai pagato tocca <b>💶 L'ho pagata: segnala</b>, scegli il giorno e come hai pagato (PagoPA, app della banca, posta…) e tocca <b>Conferma</b>. Gli avvisi per quella bolletta si fermano.")}
     ${passo(3, "Il telefono ti manda una <b>notifica</b> qualche giorno prima della scadenza, la mattina verso le 9. Nella notifica ci sono i tasti <b>Segna pagata</b> e <b>Apri</b>.",
       `<div class="g-card" style="max-width:320px"><b>Bolletta da pagare: Italgas (Gas)</b><small>64,20 € · scade lunedì 24/11 (tra 3 giorni)</small><div class="g-row"><span class="g-btn g-tocca">SEGNA PAGATA</span><span class="g-btn">APRI</span></div></div>`)}
     ${passo(4, "I giorni dell'avviso si cambiano in <b>Impostazioni → Avvisi di scadenza</b>.")}
