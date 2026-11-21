@@ -272,6 +272,7 @@ pre.ocr{white-space:pre-wrap;font-size:12px;background:#f6f7f9;border-radius:8px
 .kvr{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #f0f0f0;font-size:15px}
 .kvr span{color:#777;flex:none}.kvr b{font-weight:500;text-align:right;word-break:break-word}
 .imp{font-size:28px;font-weight:600}
+.pill.casa{background:#e0f2fe;color:#075985}
 
 </style>
 </head>
@@ -427,19 +428,29 @@ const vuoto = v => v === undefined || v === null || v === "" || (Array.isArray(v
 /* =========================================================
    La bolletta: tipi, stato, cartella
    ========================================================= */
-const TIPI = [
+const TIPI_BASE = [
   {k:"Luce", ic:"💡", bg:"#fef3c7", u:"kWh"},
   {k:"Gas", ic:"🔥", bg:"#fee2e2", u:"Smc"},
   {k:"Luce e gas", ic:"⚡", bg:"#fde68a", u:""},
   {k:"Acqua", ic:"💧", bg:"#dbeafe", u:"m³"},
+  {k:"Telefono", ic:"📞", bg:"#ede9fe", u:""},
   {k:"Rifiuti (TARI)", ic:"🗑️", bg:"#dcfce7", u:""},
-  {k:"Telefono e internet", ic:"📞", bg:"#ede9fe", u:""},
-  {k:"Condominio", ic:"🏢", bg:"#f3f4f6", u:""},
-  {k:"Altro", ic:"📄", bg:"#f1f5f9", u:""}];
-const tipoInfo = t => TIPI.find(x => x.k.toLowerCase() === String(t || "").toLowerCase()) || TIPI[TIPI.length - 1];
+  {k:"IMU", ic:"🏛️", bg:"#fce7f3", u:""},
+  {k:"Condominio", ic:"🏢", bg:"#f3f4f6", u:""}];
+const TIPO_ALTRO = {k:"Altro", ic:"📄", bg:"#f1f5f9", u:""};
+const ALIAS_TIPI = {"telefono e internet":"Telefono", "imu comunale":"IMU", "imu e tasse":"IMU", "rifiuti tari":"Rifiuti (TARI)", "tari":"Rifiuti (TARI)", "rifiuti":"Rifiuti (TARI)"};
+/* tipi: quelli di base + quelli aggiunti dall'utente (case.json) + Altro, sempre per ultimo */
+const tipi = () => TIPI_BASE.concat((settings().tipiExtra || []).map(t => ({k:t.k, ic:t.ic || "📄", bg:"#f1f5f9", u:"", extra:true}))).concat([TIPO_ALTRO]);
+const normTipo = t => { const x = String(t || "").trim(), a = ALIAS_TIPI[x.toLowerCase()]; return a || (tipi().find(y => y.k.toLowerCase() === x.toLowerCase()) || {}).k || x; };
+const tipoInfo = t => { const n = normTipo(t); return tipi().find(x => x.k === n) || Object.assign({}, TIPO_ALTRO, n ? {k:n} : {}); };
+/* ---------- Case ---------- */
+const caseCasa = () => settings().case || [];
+const piuCase = () => caseCasa().length > 1;
+const casaInfo = nome => caseCasa().find(c => c.nome === nome) || {nome:nome || "", icona:"🏠", indirizzo:""};
+const ICONE_CASA = ["🏠","👵","👴","🏡","🏖️","⛰️","🏢","🏬","🌳","🚗"];
 const MODI_PAGAMENTO = ["PagoPA", "App della banca", "CBILL", "Bollettino postale", "Bonifico", "Carta", "Contanti", "Altro"];
 function newDraft(){
-  return {id:"", cartella:"", ente:"", tipo:"", importo:"", scadenza:"", emessa:"", numero:"", periodoDa:"", periodoA:"",
+  return {id:"", cartella:"", casa: caseCasa().length === 1 ? caseCasa()[0].nome : "", ente:"", tipo:"", importo:"", scadenza:"", emessa:"", numero:"", periodoDa:"", periodoA:"",
     stato:"da", pagataIl:"", pagataCon:"", codiceCliente:"", pod:"", indirizzo:"", consumo:"", unita:"", lettura:"", note:"",
     files:[], pendingFiles:[]};
 }
@@ -456,12 +467,14 @@ function statoInfo(b){
 }
 const daPagare = b => b.stato !== "pag" && b.stato !== "dom";
 const urgente = b => daPagare(b) && b.scadenza && daysLeft(b.scadenza) <= 7;
-const nomeEnte = b => [b.ente || "Ente sconosciuto", b.tipo].filter(Boolean).join(" - ");
+const nomeEnte = b => [b.ente || "Ente sconosciuto", b.tipo ? normTipo(b.tipo) : ""].filter(Boolean).join(" - ");
 function folderFor(b){
   const data = (b.scadenza || b.emessa || todayISO()).replace(/-/g, "_");
   const imp = Number(b.importo) > 0 ? " " + Number(b.importo).toFixed(2).replace(".", ",") + "€" : "";
-  return `${safeName(nomeEnte(b))}/${data}${b.scadenza ? " scad." : ""}${imp}`;
+  return `${b.casa ? safeName(b.casa) + "/" : ""}${safeName(nomeEnte(b))}/${data}${b.scadenza ? " scad." : ""}${imp}`;
 }
+/* cartella del fornitore (tutto tranne l'ultima parte): "Casa mia/Enel Energia - Luce" */
+const cartellaEnte = b => { const p = (b.cartella || "").split("/").filter(Boolean); return p.length > 1 ? p.slice(0, -1).join("/") : nomeEnte(b); };
 const descrPeriodo = b => b.periodoDa && b.periodoA ? `${fmtDate(b.periodoDa)} – ${fmtDate(b.periodoA)}` : b.periodoDa ? "dal " + fmtDate(b.periodoDa) : "";
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -491,9 +504,9 @@ const ENTI_NOTI = [
   ["Acquedotto Pugliese", /acquedotto\s+pugliese|\baqp\b/i, "Acqua"], ["Abbanoa", /abbanoa/i, "Acqua"], ["Publiacqua", /publiacqua/i, "Acqua"], ["MM", /\bmm\s+s\.?p\.?a.*(?:servizio\s+idrico)/i, "Acqua"],
   ["Gori", /\bgori\s+s\.?p\.?a/i, "Acqua"], ["SMAT", /\bsmat\b/i, "Acqua"], ["Gruppo CAP", /gruppo\s+cap|cap\s+holding/i, "Acqua"], ["Veritas", /veritas\s+s\.?p\.?a/i, ""], ["Acque Veronesi", /acque\s+veronesi/i, "Acqua"],
   ["Acqualatina", /acqualatina/i, "Acqua"], ["Siciliacque", /siciliacque/i, "Acqua"], ["AMAP", /\bamap\b/i, "Acqua"], ["Acea", /\bacea\b/i, ""],
-  ["TIM", /\btim\b|telecom\s+italia/i, "Telefono e internet"], ["Vodafone", /vodafone/i, "Telefono e internet"], ["WindTre", /wind\s*tre|windtre/i, "Telefono e internet"],
-  ["Iliad", /\biliad\b/i, "Telefono e internet"], ["Fastweb", /fastweb/i, "Telefono e internet"], ["Sky", /\bsky\s+(?:wifi|italia)/i, "Telefono e internet"], ["Tiscali", /tiscali/i, "Telefono e internet"],
-  ["Eolo", /\beolo\b/i, "Telefono e internet"], ["Linkem", /linkem|tiscali\s+fwa/i, "Telefono e internet"], ["PosteMobile", /postemobile|poste\s+mobile/i, "Telefono e internet"], ["Kena", /kena\s+mobile/i, "Telefono e internet"],
+  ["TIM", /\btim\b|telecom\s+italia/i, "Telefono"], ["Vodafone", /vodafone/i, "Telefono"], ["WindTre", /wind\s*tre|windtre/i, "Telefono"],
+  ["Iliad", /\biliad\b/i, "Telefono"], ["Fastweb", /fastweb/i, "Telefono"], ["Sky", /\bsky\s+(?:wifi|italia)/i, "Telefono"], ["Tiscali", /tiscali/i, "Telefono"],
+  ["Eolo", /\beolo\b/i, "Telefono"], ["Linkem", /linkem|tiscali\s+fwa/i, "Telefono"], ["PosteMobile", /postemobile|poste\s+mobile/i, "Telefono"], ["Kena", /kena\s+mobile/i, "Telefono"],
   ["Italgas", /italgas/i, "Gas"], ["2i Rete Gas", /2i\s+rete\s+gas/i, "Gas"]];
 const num = s => { const t = String(s).replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."); const v = parseFloat(t); return isFinite(v) ? v : NaN; };
 const IMPORTO = "(?:€|eur(?:o)?)?\\s*(-?\\d{1,3}(?:\\.\\d{3})*,\\d{2}|-?\\d+[.,]\\d{2})\\s*(?:€|eur(?:o)?)?";
@@ -530,6 +543,7 @@ function parseBolletta(text){
   const testa = righe.slice(0, 40).join("\n");
   for(const [nome, rx, tipo] of ENTI_NOTI){ if(rx.test(testa) || rx.test(T)){ r.ente = nome; if(tipo) r.tipo = tipo; break; } }
   const comune = T.match(/comune\s+di\s+([A-ZÀ-Ù][A-Za-zÀ-ù' ]{2,30}?)(?=\s*(?:\n|-|–|\(|,|\.|servizio|ufficio|$))/i);
+  if(/\bimu\b|imposta\s+municipale\s+propria|\bex\s+ici\b/i.test(T) && !/\btari\b/i.test(T)){ r.tipo = "IMU"; if(!r.ente && comune) r.ente = "Comune di " + comune[1].trim().replace(/\s+/g, " ").toLowerCase().replace(/(^|\s|')\S/g, c => c.toUpperCase()); }
   if(/\btari\b|tassa\s+(?:sui\s+)?rifiuti|tariffa\s+rifiuti|igiene\s+urbana/i.test(T)){ r.tipo = "Rifiuti (TARI)"; if(!r.ente && comune) r.ente = "Comune di " + comune[1].trim().replace(/\s+/g, " ").toLowerCase().replace(/(^|\s|')\S/g, c => c.toUpperCase()); }
   if(/\bcondominio\b/i.test(testa) && /rata|preventivo|consuntivo|quote?\s+condominial/i.test(T)){ r.tipo = "Condominio"; if(!r.ente){ const c = T.match(/condominio\s+([^\n]{3,40})/i); r.ente = c ? ("Condominio " + c[1].trim()).slice(0, 40) : "Condominio"; } }
 
@@ -540,7 +554,7 @@ function parseBolletta(text){
     const acqua = /servizio\s+idrico|acquedotto|fognatura|depurazione|\bm[c3³]\b/i.test(T);
     const tel = /\bfibra\b|\badsl\b|linea\s+(?:fissa|telefonica)|telefon|\bgiga\b|traffico\s+(?:voce|dati)|internet/i.test(T);
     if(luce && gas) r.tipo = "Luce e gas"; else if(luce) r.tipo = "Luce"; else if(gas) r.tipo = "Gas";
-    else if(!r.tipo && acqua) r.tipo = "Acqua"; else if(!r.tipo && tel) r.tipo = "Telefono e internet";
+    else if(!r.tipo && acqua) r.tipo = "Acqua"; else if(!r.tipo && tel) r.tipo = "Telefono";
   }
 
   // ---- importo ----
@@ -709,7 +723,7 @@ async function testoDocumenti(docs, avanza){
 
 /* ---------- Lettura online gratuita con Google Gemini ---------- */
 const PROMPT_LETTURA = () => `Leggi questa bolletta/fattura italiana (luce, gas, acqua, rifiuti, telefono, condominio) e rispondi SOLO con JSON:
-{"ente":"nome commerciale del fornitore (es. Enel Energia, A2A Energia, Acquedotto Pugliese, TIM, Comune di …)","tipo":"Luce|Gas|Luce e gas|Acqua|Rifiuti (TARI)|Telefono e internet|Condominio|Altro","importo":numero totale da pagare in euro|null,"scadenza":"AAAA-MM-GG data entro cui pagare","emessa":"AAAA-MM-GG data di emissione","numero":"numero della fattura","periodoDa":"AAAA-MM-GG","periodoA":"AAAA-MM-GG","domiciliata":true|false,"codiceCliente":"","pod":"codice POD (luce) o PDR (gas)","indirizzo":"indirizzo della fornitura","consumo":numero dei consumi fatturati nel periodo|null,"unita":"kWh|Smc|m³|","lettura":"reale|stimata|","conguaglio":true|false}
+{"ente":"nome commerciale del fornitore (es. Enel Energia, A2A Energia, Acquedotto Pugliese, TIM, Comune di …)","tipo":"${tipi().map(t => t.k).join("|")}","importo":numero totale da pagare in euro|null,"scadenza":"AAAA-MM-GG data entro cui pagare","emessa":"AAAA-MM-GG data di emissione","numero":"numero della fattura","periodoDa":"AAAA-MM-GG","periodoA":"AAAA-MM-GG","domiciliata":true|false,"codiceCliente":"","pod":"codice POD (luce) o PDR (gas)","indirizzo":"indirizzo della fornitura","consumo":numero dei consumi fatturati nel periodo|null,"unita":"kWh|Smc|m³|","lettura":"reale|stimata|","conguaglio":true|false}
 domiciliata = true SOLO se la bolletta dice che QUESTO importo verrà addebitato automaticamente sul conto corrente (domiciliazione attiva, SDD, RID). Se c'è un bollettino, un codice avviso PagoPA o CBILL da pagare, oppure la bolletta propone soltanto di attivare la domiciliazione, domiciliata = false. Se un dato non c'è lascialo vuoto. Oggi è ${todayISO()}.`;
 async function geminiCall(body, model){
   const s = settings();
@@ -764,7 +778,7 @@ async function geminiRead(files){
   const m = txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("Risposta online non leggibile: riprova.");
   const o = JSON.parse(m[0]);
   const d = v => /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : "";
-  return {ente:o.ente || "", tipo:TIPI.some(t => t.k === o.tipo) ? o.tipo : "", importo:Number(o.importo) > 0 ? Math.round(Number(o.importo) * 100) / 100 : "",
+  return {ente:o.ente || "", tipo:o.tipo && tipi().some(t => t.k === normTipo(o.tipo)) ? normTipo(o.tipo) : "", importo:Number(o.importo) > 0 ? Math.round(Number(o.importo) * 100) / 100 : "",
     scadenza:d(o.scadenza), emessa:d(o.emessa), numero:o.numero || "", periodoDa:d(o.periodoDa), periodoA:d(o.periodoA), stato:o.domiciliata === true ? "dom" : "da",
     codiceCliente:o.codiceCliente || "", pod:o.pod || "", indirizzo:o.indirizzo || "", consumo:Number(o.consumo) > 0 ? Number(o.consumo) : "",
     unita:["kWh","Smc","m³"].includes(o.unita) ? o.unita : "", lettura:["reale","stimata"].includes(o.lettura) ? o.lettura : "", note:o.conguaglio === true ? "Bolletta di conguaglio" : ""};
@@ -808,20 +822,24 @@ function setSync(s){
   $("#syncLine").textContent = s === "run" ? "Aggiornamento elenco…" : !ora ? "Elenco non ancora letto" : (s === "ok" ? "Aggiornato alle " : "Elenco del ") + quando;
 }
 const INFO_FILE = "bolletta.json";
-const CAMPI = ["ente","tipo","importo","scadenza","emessa","numero","periodoDa","periodoA","stato","pagataIl","pagataCon","codiceCliente","pod","indirizzo","consumo","unita","lettura","note",
+const CAMPI = ["casa","ente","tipo","importo","scadenza","emessa","numero","periodoDa","periodoA","stato","pagataIl","pagataCon","codiceCliente","pod","indirizzo","consumo","unita","lettura","note",
   "aggiuntoDa","aggiuntoDaId","aggiuntoIl","modificatoDa","modificatoIl","datiAuto"];
 /* Una cartella dell'archivio → una bolletta. Se manca bolletta.json, i dati vengono dal nome delle cartelle */
 function entryFromFolder(f){
-  const parts = f.path.split("/").filter(Boolean), last = parts[parts.length - 1] || "", primo = parts.length > 1 ? parts[0] : "";
+  // Casa/Ente - Tipo/data  (oppure, prima delle case: Ente - Tipo/data)
+  const parts = f.path.split("/").filter(Boolean), last = parts[parts.length - 1] || "";
+  const primo = parts.length > 1 ? parts[parts.length - 2] : "", casa = parts.length > 2 ? parts[0] : "";
   const b = newDraft(); delete b.pendingFiles;
-  Object.assign(b, {id:f.path, cartella:f.path, files:(f.files || []).map(x => ({name:x.name, size:x.size})), hasInfo:false});
+  Object.assign(b, {id:f.path, cartella:f.path, casa, files:(f.files || []).map(x => ({name:x.name, size:x.size})), hasInfo:false});
   const sep = primo.lastIndexOf(" - ");
-  if(sep > 0 && TIPI.some(t => t.k.toLowerCase() === primo.slice(sep + 3).toLowerCase())){ b.ente = primo.slice(0, sep); b.tipo = tipoInfo(primo.slice(sep + 3)).k; } else b.ente = primo;
+  if(sep > 0 && tipi().some(t => t.k === normTipo(primo.slice(sep + 3)))){ b.ente = primo.slice(0, sep); b.tipo = normTipo(primo.slice(sep + 3)); } else b.ente = primo;
   const dm = last.match(/(\d{4})[_\-.](\d{2})[_\-.](\d{2})/);
   if(dm){ const iso = `${dm[1]}-${dm[2]}-${dm[3]}`; if(/scad/i.test(last)) b.scadenza = iso; else b.emessa = iso; }
   const im = last.match(/(\d+[.,]\d{2})\s*€/); if(im) b.importo = num(im[1]);
   if(f.info){ try{ const i = JSON.parse(f.info); for(const k of CAMPI) if(i[k] !== undefined) b[k] = i[k]; b.hasInfo = true; }catch(err){} }
   if(!b.hasInfo) b.stato = "da";
+  b.casa = casa;   // la casa è quella della cartella in cui si trova
+  b.tipo = b.tipo ? normTipo(b.tipo) : "";
   return b;
 }
 async function refreshFromNas(quiet){
@@ -839,6 +857,7 @@ async function refreshFromNas(quiet){
     saveSettings({ultimoAggiornamento:new Date().toISOString()});
     setNasState("on"); setSync("ok");
     if(keep.length) await uploadPending(true);
+    await leggiCase();
     syncReminders();
     await aggiornaUtenti();
     if(current === "home") renderHome();
@@ -888,6 +907,7 @@ window.onStampa = st => {
 function datiScheda(a, altri){
   const s = statoInfo(a), righe = [];
   const r = (k, v) => { if(v !== "" && v !== null && v !== undefined) righe.push([k, String(v)]); };
+  if(a.casa) r("Casa", a.casa + (casaInfo(a.casa).indirizzo ? " · " + casaInfo(a.casa).indirizzo : ""));
   r("Importo", euro(a.importo)); r("Scadenza", a.scadenza ? fmtDate(a.scadenza) : ""); r("Periodo", descrPeriodo(a));
   r("N. fattura", a.numero); r("Emessa il", a.emessa ? fmtDate(a.emessa) : "");
   r("Pagamento", a.stato === "pag" ? "Pagata" + (a.pagataIl ? " il " + fmtDate(a.pagataIl) : "") + (a.pagataCon ? " · " + a.pagataCon : "") : a.stato === "dom" ? "Domiciliata (addebito sul conto)" : "Da pagare");
@@ -1036,18 +1056,57 @@ function parseCSV(t){
 }
 const CATALOGO = "catalogo_bollette.csv";
 function catalogoCSV(list){
-  const head = ["Ente","Tipo","N. fattura","Emessa il","Periodo dal","Periodo al","Scadenza","Importo €","Stato","Pagata il","Pagata con","Codice cliente","POD/PDR","Indirizzo fornitura","Consumo","Unità","Lettura","Cartella","File","Note"];
+  const head = ["Casa","Ente","Tipo","N. fattura","Emessa il","Periodo dal","Periodo al","Scadenza","Importo €","Stato","Pagata il","Pagata con","Codice cliente","POD/PDR","Indirizzo fornitura","Consumo","Unità","Lettura","Cartella","File","Note"];
   const pulito = v => String(v ?? "").replace(/[;\r\n]+/g, " ").trim();
   const c = nasCfg(), radice = archivioScelto() === "nas" && c.host ? "\\\\" + c.host + "\\" + c.share + (c.folder ? "\\" + String(c.folder).replace(/[\/\\]+/g, "\\").replace(/^\\|\\$/g, "") : "") : "";
   const percorso = rel => (radice ? radice + "\\" : "") + String(rel || "").replace(/\//g, "\\");
   const stato = {da:"da_pagare", pag:"pagata", dom:"domiciliata"};
-  const righe = [...list].filter(a => !a.daCaricare).sort((x, y) => nomeEnte(x).localeCompare(nomeEnte(y), "it") || (y.scadenza || "").localeCompare(x.scadenza || "")).map(a => {
+  const righe = [...list].filter(a => !a.daCaricare).sort((x, y) => (x.casa || "").localeCompare(y.casa || "", "it") || nomeEnte(x).localeCompare(nomeEnte(y), "it") || (y.scadenza || "").localeCompare(x.scadenza || "")).map(a => {
     const doc = documenti(a)[0];
     const imp = a.importo === "" || a.importo == null || isNaN(Number(a.importo)) ? "" : Number(a.importo).toFixed(2);
-    return [a.ente, a.tipo, a.numero, a.emessa, a.periodoDa, a.periodoA, a.scadenza, imp, stato[a.stato] || "da_pagare", a.pagataIl, a.pagataCon, a.codiceCliente, a.pod, a.indirizzo,
+    return [a.casa, a.ente, a.tipo, a.numero, a.emessa, a.periodoDa, a.periodoA, a.scadenza, imp, stato[a.stato] || "da_pagare", a.pagataIl, a.pagataCon, a.codiceCliente, a.pod, a.indirizzo,
       a.consumo === "" || a.consumo == null ? "" : String(a.consumo), a.unita, a.lettura, percorso(a.cartella), doc ? percorso(a.cartella + "/" + doc.name) : "", a.note].map(pulito).join(";");
   });
   return "\ufeff" + [head.join(";"), ...righe].join("\r\n") + "\r\n";
+}
+
+/* ---------- Case e tipi aggiunti: file case.json nella cartella generale dell'archivio ---------- */
+const CASE_FILE = "case.json";
+async function leggiCase(){
+  if(!archivioPronto()) return;
+  try{
+    const d = JSON.parse(b64dec(await call("nasRead", CASE_FILE)));
+    saveSettings({case:Array.isArray(d.case) ? d.case : [], tipiExtra:Array.isArray(d.tipi) ? d.tipi : []});
+  }catch(e){
+    // non c'è ancora: se il telefono ha già delle case (create fuori casa), le scrive nell'archivio
+    if((settings().case || []).length && /non trovat|not found|no such|NAME_NOT_FOUND|does not exist|0xc0000034/i.test(e.message || "")) scriviCase().catch(() => {});
+  }
+}
+async function scriviCase(caseL, tipiL){
+  const s = settings(), c = caseL || s.case || [], t = tipiL || s.tipiExtra || [];
+  await call("nasWriteText", "", CASE_FILE, JSON.stringify({app:"BolletteDiCasa", tipo:"case", aggiornato:new Date().toISOString(), case:c, tipi:t}, null, 2));
+  saveSettings({case:c, tipiExtra:t});
+}
+/* Sposta una bolletta in un'altra cartella (casa nuova): copia i file, scrive bolletta.json, cancella la vecchia */
+async function spostaBolletta(b, campi, avanza){
+  const nuova = Object.assign({}, b, campi);
+  const tutte = await allBollette(); let base = folderFor(nuova), c = base, n = 2;
+  while(tutte.some(x => x.id !== b.id && x.cartella.toLowerCase() === c.toLowerCase())) c = `${base} (${n++})`;
+  if(c === b.cartella){ Object.assign(b, campi); await call("nasWriteText", b.cartella, INFO_FILE, infoJSON(b)); await putBolletta(b); return b; }
+  nuova.cartella = nuova.id = c; nuova.files = [];
+  for(const f of (b.files || [])){
+    if(f.name === INFO_FILE) continue;
+    avanza && avanza(f.name);
+    const data = await call("nasRead", b.cartella + "/" + f.name);
+    const used = await call("nasWriteFile", c, f.name, data);
+    nuova.files.push({name:used, size:f.size});
+  }
+  await call("nasWriteText", c, INFO_FILE, infoJSON(nuova));
+  nuova.hasInfo = true;
+  await call("nasDeleteFolder", b.cartella);
+  await delBolletta(b.id); await putBolletta(nuova);
+  if(A && A.annullaNotifica) A.annullaNotifica(b.id);
+  return nuova;
 }
 
 /* =========================================================
@@ -1056,7 +1115,7 @@ function catalogoCSV(list){
 let current = "";
 const TITOLI = {home:"Bollette di casa", acquisisci:"Acquisisci", archivio:"Archivio", ente:"Archivio", scadenze:"Scadenze", impostazioni:"Impostazioni", dettaglio:"Bolletta", grafici:"Grafici",
   impDest:"Dove salvare", impAvvisi:"Avvisi di scadenza", impLett:"Lettura bollette", impBackup:"Backup e catalogo", impInfo:"Informazioni", impStampa:"Stampa",
-  impUtenti:"Utenti di casa", impUtente:"Utente", invito:"Entra con un invito", guida:"Guida all'uso"};
+  impUtenti:"Utenti di casa", impUtente:"Utente", impCase:"Le mie case", impCasa:"Casa", impTipi:"Tipi di bolletta", invito:"Entra con un invito", guida:"Guida all'uso"};
 let currentArg, navStack = [];
 function setView(v, arg, isBack){
   if(!isBack){
@@ -1072,7 +1131,7 @@ function setView(v, arg, isBack){
   window.scrollTo(0, 0);
   return ({home:renderHome, acquisisci:renderAcquisisci, archivio:renderArchivio, ente:renderEnte, scadenze:renderScadenze, impostazioni:renderImpostazioni, dettaglio:renderDettaglio, grafici:renderGrafici,
     impDest:renderImpDest, impAvvisi:renderImpAvvisi, impLett:renderImpLett, impBackup:renderImpBackup, impInfo:renderImpInfo, impStampa:renderImpStampa,
-    impUtenti:renderImpUtenti, impUtente:renderImpUtente, invito:renderInvito, guida:renderGuida})[v](arg);
+    impUtenti:renderImpUtenti, impUtente:renderImpUtente, impCase:renderImpCase, impCasa:renderImpCasa, impTipi:renderImpTipi, invito:renderInvito, guida:renderGuida})[v](arg);
 }
 $("#hBack").onclick = () => window.onAndroidBack();
 $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric", month:"long", year:"numeric"});
@@ -1080,8 +1139,16 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.2";
+const VERSIONE = "v1.3";
 const CRONOLOGIA = [
+  {v:"v1.3", d:"21/11/2026", n:[
+    "Più case: Impostazioni → Le mie case (la tua, quella della mamma…). Nell'archivio ogni casa ha la sua cartella con dentro i fornitori",
+    "Acquisisci chiede per prima cosa «Per quale casa?»; con Condividi la casa viene riconosciuta da indirizzo, codice cliente o POD",
+    "Home, Archivio, Scadenze e Grafici si possono vedere per casa; la notifica dice di quale casa è la bolletta",
+    "Le bollette già salvate vengono spostate nella prima casa che crei",
+    "Tipi di bolletta: Luce, Gas, Acqua, Telefono, Rifiuti (TARI), IMU, Condominio. Puoi aggiungerne altri in Impostazioni → Tipi di bolletta",
+    "Guida all'uso: nuovo capitolo «Più case»"
+  ]},
   {v:"v1.2", d:"21/11/2026", n:[
     "Una bolletta letta parte sempre «da pagare»: l'app non sceglie più da sola «Domiciliata», al massimo lo suggerisce",
     "Lettura online: più tempo per rispondere quando le foto sono più di una"
@@ -1132,13 +1199,16 @@ async function renderHome(){
       <div class="sum">${list.length ? `<a href="#" data-go="scadenze"><b>Da pagare</b>: ${dp.length} ${dp.length === 1 ? "bolletta" : "bollette"}${tot ? " · " + euro(tot) : ""}</a>${scad ? `<br><span style="color:var(--bad)">⚠️ Scadute non pagate: ${scad}</span>` : ""}<br>${dom ? `Domiciliate in arrivo: ${dom} · ` : ""}Spesa ${anno}: ${euro(spesa) || "0 €"}` : "Nessuna bolletta ancora: inizia da <b>Acquisisci</b>."}${nDaCaricare ? `<br>⏳ Da caricare nell'archivio: ${nDaCaricare}` : ""}</div>
     </div>
     ${nuovi.length ? `<div class="banner info" id="bNuovi" style="cursor:pointer"><div>🆕 <b>${nuovi.length} ${nuovi.length > 1 ? "nuove bollette" : "nuova bolletta"} da ${esc(daChi.join(" e "))}</b><br><small>tocca per vederle</small></div></div>` : ""}
+    ${piuCase() ? caseCasa().map(c => { const l = list.filter(b => b.casa === c.nome), d = l.filter(daPagare), u = l.filter(urgente).length, sp = l.filter(b => dataRif(b).startsWith(String(anno))).reduce((t, b) => t + (Number(b.importo) || 0), 0);
+      return `<div class="entry" data-hc="${esc(c.nome)}"><div class="ico" style="background:#e0f2fe">${esc(c.icona || "🏠")}</div><div class="txt"><div class="t1">${esc(c.nome)}</div><div class="t2">${d.length} da pagare · ${anno}: ${esc(euro(sp) || "0 €")}</div></div>${u ? `<span class="pill warn">${u} entro 7 gg</span>` : ""}</div>`; }).join("") + `<div style="height:6px"></div>` : ""}
     ${puo("aggiungere") ? tile("acquisisci", "📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta") : ""}
-    ${tile("archivio", "🗂️", "#e6eef8", "Archivio", "Le bollette divise per ente", nuovi.length ? `<span class="cnt" style="background:#e5484d">${nuovi.length}</span>` : "")}
+    ${tile("archivio", "🗂️", "#e6eef8", "Archivio", piuCase() ? "Le bollette divise per casa e fornitore" : "Le bollette divise per fornitore", nuovi.length ? `<span class="cnt" style="background:#e5484d">${nuovi.length}</span>` : "")}
     ${tile("scadenze", "⏰", "#f8e6dc", "Scadenze", "Bollette da pagare e avvisi", urg ? `<span class="cnt" style="background:var(--bad)">${urg}</span>` : "")}
     ${tile("grafici", "📊", "#e8f4f1", "Grafici", "Spese e consumi nel tempo")}
     ${tile("impostazioni", "⚙️", "#ece7f4", "Impostazioni", "Archivio, avvisi, utenti di casa, guida")}
     ${footerHTML()}`;
   document.querySelectorAll(".tile").forEach(t => t.onclick = () => setView(t.dataset.v));
+  document.querySelectorAll("[data-hc]").forEach(x => x.onclick = () => setView("archivio", {casa:x.dataset.hc}));
   document.querySelectorAll("[data-go]").forEach(x => x.onclick = e => { e.preventDefault(); setView(x.dataset.go); });
   bindFooter();
   if($("#bNuovi")) $("#bNuovi").onclick = () => setView("archivio", {nuovi:true});
@@ -1167,12 +1237,17 @@ async function renderAcquisisci(edit){
   if(edit){ draft = JSON.parse(JSON.stringify(edit)); draft.pendingFiles = draft.pendingFiles || []; draft._edit = true; lastText = ""; dubbiLettura = {}; }
   if(!draft) draft = newDraft();
   const isEdit = !!draft._edit, vuota = !draft.pendingFiles.length && !isEdit;
+  if(isEdit && draft._casaOrig === undefined) draft._casaOrig = draft.casa || "";
+  // prima di tutto: per quale casa? (se non è ancora scelta)
+  const chiediCasa = !isEdit && !draft.casa;
+  const nascondiDoc = vuota && chiediCasa;
   if(isEdit) $("#hTitle").textContent = "Modifica bolletta";
   const opt = (arr, v) => arr.map(x => `<option${x === v ? " selected" : ""}>${esc(x)}</option>`).join("");
   $("#view").innerHTML = `
     ${nasBanner()}${await pendingBanner()}
-    <div class="card">
-      <h2>${isEdit ? "📎 Documenti" : "1. La bolletta"}</h2>
+    ${chiediCasa ? cardCasa() : ""}
+    <div class="card${nascondiDoc ? " hidden" : ""}">
+      <h2>${isEdit ? "📎 Documenti" : "1. La bolletta"}${!isEdit && draft.casa && piuCase() ? ` <span class="pill casa" style="vertical-align:3px">${esc(casaInfo(draft.casa).icona)} ${esc(draft.casa)}</span>` : ""}</h2>
       ${vuota ? `<p class="muted" style="margin:0">Da dove prendi la bolletta?</p>
         <button class="bigpick" id="bFile"><span class="ic" style="background:#ccfbf1">📄</span><span><span class="t1">Scegli il PDF <span class="consig">consigliato</span></span><br><span class="t2">La bolletta arrivata per email, salvata nel telefono</span></span></button>
         <button class="bigpick" id="bCam"><span class="ic" style="background:#edf3e4">📷</span><span><span class="t1">Scatta una foto</span><br><span class="t2">Bolletta di carta, anche in più foto</span></span></button>
@@ -1185,9 +1260,10 @@ async function renderAcquisisci(edit){
     </div>
     <div class="card${vuota ? " hidden" : ""}" id="formCard">
       <h2>${isEdit ? "Dati" : "2. Controlla i dati"}</h2>
+      ${caseCasa().length ? `<label>Casa</label><div class="seg" id="segCasa">${caseCasa().map(c => `<button data-c="${esc(c.nome)}"${c.nome === draft.casa ? ' class="on"' : ""}>${esc(c.icona || "🏠")} ${esc(c.nome)}</button>`).join("")}</div><div id="casaNota"></div>` : ""}
       <div class="row">
         <div><label>Ente (fornitore)</label><input id="fEnte" list="dlEnti" autocomplete="off"></div>
-        <div><label>Tipo</label><select id="fTipo"><option value=""></option>${opt(TIPI.map(t => t.k), draft.tipo)}</select></div>
+        <div><label>Tipo</label><select id="fTipo"><option value=""></option>${opt(tipi().map(t => t.k).concat(draft.tipo && !tipi().some(t => t.k === normTipo(draft.tipo)) ? [draft.tipo] : []), normTipo(draft.tipo))}</select></div>
       </div>
       <datalist id="dlEnti"></datalist>
       <div class="row">
@@ -1237,6 +1313,8 @@ async function renderAcquisisci(edit){
   document.querySelectorAll("#segStato button").forEach(b => b.onclick = () => { readForm(); setStato(b.dataset.s); readForm(); updPreview(); salvaBozza(); });
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
+  bindCardCasa();
+  document.querySelectorAll("#segCasa button").forEach(b => b.onclick = () => { readForm(); draft.casa = b.dataset.c; document.querySelectorAll("#segCasa button").forEach(x => x.classList.toggle("on", x === b)); $("#casaNota").innerHTML = ""; updPreview(); salvaBozza(); });
   $("#bCam").onclick = () => $("#camInput").click();
   $("#bFile").onclick = () => $("#fileInput").click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
@@ -1253,6 +1331,54 @@ async function renderAcquisisci(edit){
   if($("#bReset")) $("#bReset").onclick = async () => { if(await conferma("Svuotare il modulo?", "Svuota")){ draft = newDraft(); lastText = ""; dubbiLettura = {}; cancellaBozza(); renderAcquisisci(); } };
   if($("#bAnnulla")) $("#bAnnulla").onclick = () => { draft = null; cancellaBozza(); window.onAndroidBack(); };
   evidenziaDubbi();
+}
+/* Scelta della casa in Acquisisci */
+function cardCasa(){
+  const l = caseCasa();
+  if(!l.length) return `<div class="card" id="cardCasa"><h2>🏠 Prima di tutto: la tua casa</h2>
+    <p class="muted">Le bollette si dividono per casa (la tua, quella della mamma…). Scrivi il nome della prima casa: diventa la sua cartella nell'archivio. Le altre le aggiungi quando vuoi da Impostazioni → Le mie case.</p>
+    <label>Nome della casa</label><input id="ncNome" placeholder="es. Casa mia" autocomplete="off">
+    <label>Indirizzo (facoltativo, aiuta a riconoscere le bollette)</label><input id="ncInd" placeholder="es. Via Roma 12, Bari" autocomplete="off">
+    <div class="btns"><button class="btn primary" id="ncCrea">🏠 Crea la casa</button></div><div id="ncOut"></div></div>`;
+  return `<div class="card" id="cardCasa"><h2>🏠 Per quale casa?</h2>
+    ${l.map(c => `<button class="bigpick" data-casa="${esc(c.nome)}"><span class="ic" style="background:#e0f2fe">${esc(c.icona || "🏠")}</span><span><span class="t1">${esc(c.nome)}</span>${c.indirizzo ? `<br><span class="t2">${esc(c.indirizzo)}</span>` : ""}</span></button>`).join("")}
+    <p class="muted" style="margin-top:12px">Per aggiungere una casa: Impostazioni → <b>Le mie case</b>.</p></div>`;
+}
+function bindCardCasa(){
+  document.querySelectorAll("[data-casa]").forEach(b => b.onclick = () => { draft.casa = b.dataset.casa; salvaBozza(); renderAcquisisci(); });
+  if($("#ncCrea")) $("#ncCrea").onclick = async () => {
+    const nome = safeName($("#ncNome").value), o = $("#ncOut");
+    if(!nome){ esito(o, false, "Scrivi il nome della casa."); return; }
+    $("#ncCrea").disabled = true;
+    try{ await creaCasa({nome, indirizzo:$("#ncInd").value.trim(), icona:"🏠"}, msg => esito(o, null, msg)); draft.casa = nome; salvaBozza(); renderAcquisisci(); }
+    catch(e){ esito(o, false, e.message); $("#ncCrea").disabled = false; }
+  };
+}
+/* Riconosce la casa: stesso POD/PDR, codice cliente o indirizzo di bollette già archiviate, oppure indirizzo della casa */
+async function indovinaCasa(b){
+  const k = x => String(x || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+  const conCasa = (await allBollette()).filter(x => x.casa && caseCasa().some(c => c.nome === x.casa));
+  const per = (campo, testo) => { const v = k(b[campo]); if(v.length < 5) return null; const x = conCasa.find(y => k(y[campo]) === v); return x ? {casa:x.casa, perche:testo} : null; };
+  const r = per("pod", "dal POD/PDR") || per("codiceCliente", "dal codice cliente") || per("indirizzo", "dall'indirizzo della fornitura");
+  if(r) return r;
+  const ind = k(b.indirizzo);
+  if(ind.length > 6){
+    for(const c of caseCasa()){ const via = k(String(c.indirizzo || "").split(",")[0]); if(via.length > 5 && ind.includes(via)) return {casa:c.nome, perche:"dall'indirizzo " + c.indirizzo}; }
+  }
+  return null;
+}
+/* Nuova casa: si aggiunge a case.json; se è la prima, le bollette già salvate senza casa ci vengono spostate dentro */
+async function creaCasa(c, avanza){
+  if(caseCasa().some(x => x.nome.toLowerCase() === c.nome.toLowerCase())) throw new Error("C'è già una casa con questo nome.");
+  const lista = caseCasa().concat([Object.assign({id:nuovoId()}, c)]);
+  if(archivioPronto()){ await scriviCase(lista); } else saveSettings({case:lista});
+  const senza = (await allBollette()).filter(b => !b.casa);
+  if(lista.length === 1 && senza.length && archivioPronto()){
+    let i = 0;
+    for(const b of senza){ i++; avanza && avanza(`Sposto le bollette già salvate in "${c.nome}"… ${i} di ${senza.length}`); if(b.daCaricare){ await delBolletta(b.id); b.casa = c.nome; b.cartella = b.id = folderFor(b); await putBolletta(b); continue; } try{ await spostaBolletta(b, {casa:c.nome}); }catch(e){} }
+    syncReminders();
+  }
+  return lista;
 }
 function readForm(){
   if(!$("#fEnte")) return;
@@ -1340,6 +1466,8 @@ async function doLeggi(){
     // la domiciliazione non viene MAI scelta da sola: la bolletta resta "da pagare" e al massimo compare un suggerimento
     const forseDom = (r.stato === "dom" || !!r.forseDom) && draft.stato !== "dom" && !draft._edit;
     if(!draft._edit) draft.datiAuto = true;
+    let casaTrovata = "";
+    if(!draft.casa && caseCasa().length){ const g = await indovinaCasa(draft); if(g){ draft.casa = g.casa; casaTrovata = g.perche; } }
     await renderAcquisisci();
     const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && "scadenza"].filter(Boolean);
     const nd = Object.keys(dubbiLettura).length;
@@ -1349,6 +1477,8 @@ async function doLeggi(){
       + (forseDom ? `<div class="g-nota" style="margin-top:8px">💡 Nella bolletta c'è una frase sull'addebito in conto. L'ho lasciata <b>da pagare</b>. Solo se sei sicuro che si paga da sola, tocca «Domiciliata».</div>` : "")
       + (modoLettura.startsWith("solo telefono") ? ` <button class="btn small" id="bRiprovaOn">🔄 Riprova online</button>` : "");
     if($("#bRiprovaOn")) $("#bRiprovaOn").onclick = () => doLeggi();
+    if(casaTrovata && $("#casaNota")) $("#casaNota").innerHTML = `<div class="okline" style="margin-top:6px">✅ Casa riconosciuta ${esc(casaTrovata)}. Se non è giusta, tocca l'altra.</div>`;
+    else if(caseCasa().length && !draft.casa && $("#casaNota")) $("#casaNota").innerHTML = `<div class="g-nota att" style="margin-top:6px">⚠️ Tocca la casa di questa bolletta.</div>`;
   }catch(e){
     stEl.innerHTML = `<span style="color:var(--bad)">❌ ${esc(e.message)}</span>`;
     document.querySelectorAll("#bLeggi").forEach(b => b.disabled = false);
@@ -1357,6 +1487,7 @@ async function doLeggi(){
 }
 async function doSalva(){
   readForm();
+  if(caseCasa().length && !draft.casa){ toast("Scegli di quale casa è la bolletta.", true); const c = $("#segCasa") || $("#cardCasa"); if(c) c.scrollIntoView({behavior:"smooth", block:"center"}); return; }
   if(!draft.ente){ toast("Scrivi l'ente (es. Enel Energia).", true); $("#fEnte").focus(); return; }
   if(!draft.importo && !(await conferma("Manca l'importo. Salvare lo stesso?", "Salva"))) return;
   if(!draft.scadenza && draft.stato !== "pag" && !(await conferma("Manca la scadenza: senza scadenza non posso avvisarti. Salvare lo stesso?", "Salva"))) return;
@@ -1374,12 +1505,14 @@ async function doSalva(){
   const giaPdf = (a.files || []).filter(f => extOf(f.name) === "pdf").length, giaImg = (a.files || []).filter(f => isImg(f.name)).length;
   let np = giaPdf, ni = giaImg;
   a.pendingFiles.forEach(f => { if(f.mime === "application/pdf"){ np++; f.name = np === 1 ? "bolletta.pdf" : `bolletta_${np}.pdf`; } else { ni++; f.name = `bolletta_${ni}.${extOf(f.name) || "jpg"}`; } });
-  delete a._edit; a.daCaricare = true;
+  const spostare = a._edit && (a._casaOrig || "") !== (a.casa || "");
+  delete a._edit; delete a._casaOrig; a.daCaricare = true;
   const b = $("#bSalva"); b.disabled = true; b.innerHTML = `<span class="spinner"></span>Salvo…`;
   let msg;
   try{
     if(!archivioPronto()) throw new Error("archivio non configurato");
     await writeToNas(a);
+    if(spostare){ const n = await spostaBolletta(a, {casa:a.casa}); Object.assign(a, n); }
     setNasState("on");
     msg = "✅ Salvata in " + a.cartella.replace(/\//g, " / ");
   }catch(e){
@@ -1425,17 +1558,28 @@ async function azioneNotifica(){
 /* =========================================================
    ARCHIVIO (un riquadro per ogni ente) e ricerca
    ========================================================= */
-let searchQ = "";
+let searchQ = "", filtroCasa = "";
 function gruppiEnti(list){
   const m = new Map();
-  for(const b of list){ const k = (b.cartella || "").split("/")[0] || nomeEnte(b); if(!m.has(k)) m.set(k, []); m.get(k).push(b); }
-  return [...m.entries()].map(([k, l]) => ({k, l, ente:l[0].ente || k, tipo:l[0].tipo || "", ultima:l.map(dataRif).sort().pop() || ""})).sort((x, y) => x.k.localeCompare(y.k, "it"));
+  for(const b of list){ const k = cartellaEnte(b); if(!m.has(k)) m.set(k, []); m.get(k).push(b); }
+  return [...m.entries()].map(([k, l]) => ({k, l, ente:l[0].ente || k.split("/").pop(), tipo:normTipo(l[0].tipo), casa:l[0].casa || "", ultima:l.map(dataRif).sort().pop() || ""})).sort((x, y) => x.k.localeCompare(y.k, "it"));
 }
+/* Riga di scelta della casa (Tutte, Casa mia, Casa mamma…): compare solo con più case */
+function chipsCase(){
+  if(!piuCase()) return "";
+  if(filtroCasa && !caseCasa().some(c => c.nome === filtroCasa)) filtroCasa = "";
+  return `<div class="chips">${[{nome:"", icona:"", t:"Tutte"}].concat(caseCasa()).map(c => `<button class="chip${filtroCasa === c.nome ? " on" : ""}" data-fc="${esc(c.nome)}">${c.t ? c.t : esc((c.icona || "🏠") + " " + c.nome)}</button>`).join("")}</div>`;
+}
+function bindChipsCase(ridisegna){ document.querySelectorAll("[data-fc]").forEach(b => b.onclick = () => { filtroCasa = b.dataset.fc; ridisegna(); }); }
+const nellaCasa = b => !filtroCasa || b.casa === filtroCasa;
+const pillCasa = b => piuCase() && b.casa ? `<span class="pill casa">${esc(casaInfo(b.casa).icona || "🏠")} ${esc(b.casa)}</span> ` : "";
 async function renderArchivio(filtro){
-  const tutti = await allBollette(), last = settings().ultimoAggiornamento, anno = String(new Date().getFullYear());
+  if(filtro && filtro.casa !== undefined) filtroCasa = filtro.casa;
+  const tutti = (await allBollette()).filter(nellaCasa), last = settings().ultimoAggiornamento, anno = String(new Date().getFullYear());
   if(filtro && filtro.nuovi){ $("#hTitle").textContent = "Nuove bollette"; }
   $("#view").innerHTML = `
     ${nasBanner()}${await pendingBanner()}
+    ${chipsCase()}
     <div class="card" style="padding:10px">
       <input id="q" type="search" placeholder="🔎 Cerca ente, numero, importo, anno…" value="${esc(searchQ)}">
       <div class="btns" style="margin-top:8px"><button class="btn" id="bRefresh">🔄 Aggiorna dall'archivio</button></div>
@@ -1447,7 +1591,7 @@ async function renderArchivio(filtro){
     const words = searchQ.toLowerCase().split(/\s+/).filter(Boolean);
     if(filtro && filtro.nuovi){ const l = tutti.filter(nuovoPerMe); $("#list").innerHTML = l.map(entryHTML).join("") || `<div class="card muted">Nessuna bolletta nuova.</div>`; $("#cnt").textContent = ""; bindEntries(); return; }
     if(words.length){
-      const rows = tutti.filter(a => { const h = [a.ente, a.tipo, a.numero, a.note, a.codiceCliente, a.pod, a.scadenza, fmtDate(a.scadenza), periodoBreve(a), a.importo !== "" ? String(a.importo).replace(".", ",") : "", a.cartella].join(" ").toLowerCase(); return words.every(w => h.includes(w)); })
+      const rows = tutti.filter(a => { const h = [a.casa, a.ente, a.tipo, a.numero, a.note, a.codiceCliente, a.pod, a.scadenza, fmtDate(a.scadenza), periodoBreve(a), a.importo !== "" ? String(a.importo).replace(".", ",") : "", a.cartella].join(" ").toLowerCase(); return words.every(w => h.includes(w)); })
         .sort((x, y) => (dataRif(y)).localeCompare(dataRif(x)));
       $("#cnt").textContent = `${rows.length} bollette trovate`;
       $("#list").innerHTML = rows.slice(0, 300).map(entryHTML).join("") || `<div class="card muted">Nessun risultato.</div>`;
@@ -1458,17 +1602,18 @@ async function renderArchivio(filtro){
     $("#list").innerHTML = g.map(x => {
       const ti = tipoInfo(x.tipo), dp = x.l.filter(daPagare).length, spesa = x.l.filter(b => dataRif(b).startsWith(anno)).reduce((t, b) => t + (Number(b.importo) || 0), 0), nv = x.l.some(nuovoPerMe);
       return `<div class="entry${nv ? " nuovo" : ""}" data-ente="${esc(x.k)}"><div class="ico" style="background:${ti.bg}">${ti.ic}</div>
-        <div class="txt"><div class="t1">${esc(x.ente)}${nv ? ` <span class="pill nuovo">NUOVO</span>` : ""}</div><div class="t2">${esc(x.tipo || "—")} · ${x.l.length} ${x.l.length === 1 ? "bolletta" : "bollette"}</div></div>
+        <div class="txt"><div class="t1">${esc(x.ente)}${nv ? ` <span class="pill nuovo">NUOVO</span>` : ""}</div><div class="t2">${piuCase() && !filtroCasa && x.casa ? esc((casaInfo(x.casa).icona || "🏠") + " " + x.casa) + " · " : ""}${esc(x.tipo || "—")} · ${x.l.length} ${x.l.length === 1 ? "bolletta" : "bollette"}</div></div>
         <div class="r"><b>${spesa ? esc(euro(spesa)) : "—"}</b><span class="muted">nel ${anno}</span>${dp ? `<br><span class="pill warn">${dp} da pagare</span>` : ""}</div></div>`;
     }).join("") || `<div class="card muted">Nessuna bolletta: inizia da Acquisisci${archivioPronto() ? "" : ", dopo aver scelto dove salvare (Impostazioni)"}.</div>`;
     document.querySelectorAll("[data-ente]").forEach(e => e.onclick = () => setView("ente", e.dataset.ente));
   };
+  bindChipsCase(() => renderArchivio(filtro && filtro.nuovi ? filtro : undefined));
   $("#q").oninput = e => { searchQ = e.target.value; draw(); };
   $("#bRefresh").onclick = async () => { const b = $("#bRefresh"); b.disabled = true; b.innerHTML = `<span class="spinner"></span>Aggiorno…`; await refreshFromNas(false); renderArchivio(filtro); };
   draw();
 }
 async function renderEnte(k){
-  const l = (await allBollette()).filter(b => ((b.cartella || "").split("/")[0] || nomeEnte(b)) === k).sort((x, y) => (y.scadenza || dataRif(y)).localeCompare(x.scadenza || dataRif(x)));
+  const l = (await allBollette()).filter(b => cartellaEnte(b) === k).sort((x, y) => (y.scadenza || dataRif(y)).localeCompare(x.scadenza || dataRif(x)));
   if(!l.length){ setView("archivio", undefined, true); return; }
   const b0 = l[0], ti = tipoInfo(b0.tipo), anno = String(new Date().getFullYear());
   const spesa = l.filter(b => dataRif(b).startsWith(anno)).reduce((t, b) => t + (Number(b.importo) || 0), 0);
@@ -1476,7 +1621,7 @@ async function renderEnte(k){
   $("#hTitle").textContent = b0.ente || k;
   $("#view").innerHTML = `
     <div class="card" style="display:flex;gap:12px;align-items:center"><div class="ico" style="width:50px;height:50px;border-radius:12px;background:${ti.bg};display:flex;align-items:center;justify-content:center;font-size:25px;flex:none">${ti.ic}</div>
-      <div style="flex:1;min-width:0"><b>${esc(b0.ente || k)}</b>${b0.tipo ? " · " + esc(b0.tipo) : ""}<div class="muted">Spesa ${anno}: ${esc(euro(spesa) || "0 €")}${media ? " · media " + esc(euro(media)) + " a bolletta" : ""}</div>${b0.codiceCliente ? `<div class="muted">Codice cliente ${esc(b0.codiceCliente)}</div>` : ""}</div></div>
+      <div style="flex:1;min-width:0"><b>${esc(b0.ente || k)}</b>${b0.tipo ? " · " + esc(normTipo(b0.tipo)) : ""}${piuCase() && b0.casa ? `<div class="muted">${esc((casaInfo(b0.casa).icona || "🏠") + " " + b0.casa)}</div>` : ""}<div class="muted">Spesa ${anno}: ${esc(euro(spesa) || "0 €")}${media ? " · media " + esc(euro(media)) + " a bolletta" : ""}</div>${b0.codiceCliente ? `<div class="muted">Codice cliente ${esc(b0.codiceCliente)}</div>` : ""}</div></div>
     ${l.map(entryHTML).join("")}`;
   bindEntries();
 }
@@ -1484,7 +1629,7 @@ function entryHTML(a){
   const s = statoInfo(a), ti = tipoInfo(a.tipo), nv = nuovoPerMe(a);
   return `<div class="entry${nv ? " nuovo" : ""}" data-id="${esc(a.id)}"><div class="ico" style="background:${ti.bg}">${ti.ic}</div>
     <div class="txt"><div class="t1">${esc(a.ente || "(senza ente)")}${nv ? ` <span class="pill nuovo">NUOVO</span>` : ""}</div>
-      <div class="t2">${esc(periodoBreve(a) || a.tipo || "")}${a.scadenza ? " · scad. " + fmtDate(a.scadenza) : ""}${piuUtenti() && a.aggiuntoDa ? " · da " + esc(a.aggiuntoDa) : ""}</div></div>
+      <div class="t2">${pillCasa(a)}${esc(periodoBreve(a) || a.tipo || "")}${a.scadenza ? " · scad. " + fmtDate(a.scadenza) : ""}${piuUtenti() && a.aggiuntoDa ? " · da " + esc(a.aggiuntoDa) : ""}</div></div>
     <div class="r"><b>${esc(euro(a.importo) || "—")}</b><span class="pill ${s.cls}">${esc(s.label.replace(/ · .*/, "").replace(/^Da pagare entro il .*/, "Da pagare"))}</span>${a.daCaricare ? `<br><span class="pill up">⏳ da caricare</span>` : ""}</div></div>`;
 }
 function bindEntries(){ document.querySelectorAll(".entry[data-id]").forEach(e => e.onclick = ev => { if(ev.target.closest("[data-pay]")) return; setView("dettaglio", e.dataset.id); }); }
@@ -1505,6 +1650,7 @@ async function renderDettaglio(id){
       ${a.daCaricare ? `<p><span class="pill up">⏳ da caricare nell'archivio</span></p>` : ""}
       ${a.datiAuto ? `<p class="muted" style="margin:8px 0 0">🤖 Dati letti in automatico: controllali, poi Modifica → Salva per confermarli.</p>` : ""}
       <div style="margin-top:8px">
+      ${a.casa ? kv("Casa", esc((casaInfo(a.casa).icona || "🏠") + " " + a.casa)) : ""}
       ${kv("Scadenza", a.scadenza ? fmtDate(a.scadenza) : "")}
       ${kv("Periodo", esc(descrPeriodo(a)))}
       ${kv("Pagamento", a.stato === "pag" ? "✅ Pagata" + (a.pagataIl ? " il " + fmtDate(a.pagataIl) : "") + (a.pagataCon ? " · " + esc(a.pagataCon) : "") : a.stato === "dom" ? "🏦 Domiciliata (addebito sul conto)" : "Da pagare")}
@@ -1602,19 +1748,20 @@ function rigaPagabile(a){
   return entryHTML(a).replace(/<\/div>\s*$/, `${puoModificare(a) ? `<button class="btn small pagbtn" data-pay="${esc(a.id)}" style="color:var(--ok);border-color:#bfe3c9">✅ Pagata</button>` : ""}</div>`).replace('class="entry', 'style="flex-wrap:wrap" class="entry');
 }
 async function renderScadenze(){
-  const list = await allBollette(), dp = list.filter(daPagare).sort((x, y) => (x.scadenza || "9999").localeCompare(y.scadenza || "9999"));
+  const list = (await allBollette()).filter(nellaCasa), dp = list.filter(daPagare).sort((x, y) => (x.scadenza || "9999").localeCompare(y.scadenza || "9999"));
   const sca = dp.filter(b => b.scadenza && daysLeft(b.scadenza) < 0), pre = dp.filter(b => b.scadenza && daysLeft(b.scadenza) >= 0 && daysLeft(b.scadenza) <= 7);
   const poi = dp.filter(b => !b.scadenza || daysLeft(b.scadenza) > 7);
   const dom = list.filter(b => b.stato === "dom" && b.scadenza && daysLeft(b.scadenza) >= -3 && daysLeft(b.scadenza) <= 40).sort((x, y) => x.scadenza.localeCompare(y.scadenza));
   const tot = dp.reduce((t, b) => t + (Number(b.importo) || 0), 0);
   const sec = (t, arr) => arr.length ? `<div class="sec">${t}</div>` + arr.map(rigaPagabile).join("") : "";
   $("#view").innerHTML = `
+    ${chipsCase()}
     <div class="stats"><div class="stat bad"><b>${sca.length}</b>Scadute</div><div class="stat warn"><b>${pre.length}</b>Entro 7 giorni</div><div class="stat ok"><b style="font-size:18px">${esc(euroBreve(tot) || "0€")}</b>Da pagare</div></div>
     ${sec("⚠️ Scadute, non ancora pagate", sca)}${sec("Entro 7 giorni", pre)}${sec("Più avanti", poi)}
     ${dom.length ? `<div class="sec">🏦 Domiciliate (si pagano da sole)</div>` + dom.map(entryHTML).join("") : ""}
     ${!dp.length ? `<div class="card" style="text-align:center;margin-top:12px">🎉 Nessuna bolletta da pagare</div>` : ""}
     <p class="muted" style="margin:14px 4px">🔔 Il telefono ti avvisa ${settings().giorniPrima} giorni prima${settings().giornoStesso ? " e il giorno della scadenza" : ""}, la mattina verso le 9. Si cambia in Impostazioni → Avvisi.</p>`;
-  bindEntries();
+  bindEntries(); bindChipsCase(renderScadenze);
   document.querySelectorAll("[data-pay]").forEach(b => b.onclick = async e => { e.stopPropagation(); const a = await getBolletta(b.dataset.pay); if(a) dialogoPagata(a); });
 }
 function syncReminders(){
@@ -1622,7 +1769,7 @@ function syncReminders(){
   const s = settings();
   allBollette().then(list => {
     const r = list.filter(b => (b.stato === "da" || b.stato === "dom" || !b.stato) && b.scadenza && daysLeft(b.scadenza) >= -60 && daysLeft(b.scadenza) <= 60)
-      .map(b => ({id:b.id, ente:b.ente || "Bolletta", tipo:b.tipo || "", importo:euro(b.importo) || "", scadenza:b.scadenza, stato:b.stato === "dom" ? "dom" : "da"}));
+      .map(b => ({id:b.id, ente:b.ente || "Bolletta", tipo:piuCase() && b.casa ? b.casa : normTipo(b.tipo), importo:euro(b.importo) || "", scadenza:b.scadenza, stato:b.stato === "dom" ? "dom" : "da"}));
     A.setReminders(JSON.stringify(r), JSON.stringify({giorniPrima:Number(s.giorniPrima) || 5, giornoStesso:s.giornoStesso !== false, scaduteOgniGiorno:s.scaduteOgniGiorno !== false, domiciliate:s.domiciliate === "no" ? "no" : "info"}));
   });
 }
@@ -1632,7 +1779,7 @@ function syncReminders(){
    ========================================================= */
 let grafTipo = "", grafAnno = "";
 async function renderGrafici(){
-  const list = (await allBollette()).filter(b => Number(b.importo) > 0 && dataRif(b));
+  const list = (await allBollette()).filter(b => Number(b.importo) > 0 && dataRif(b) && nellaCasa(b)).map(b => Object.assign({}, b, {tipo:normTipo(b.tipo)}));
   const anni = [...new Set(list.map(b => dataRif(b).slice(0, 4)))].sort().reverse();
   const annoOra = String(new Date().getFullYear());
   if(!grafAnno || !anni.includes(grafAnno)) grafAnno = anni.includes(annoOra) ? annoOra : (anni[0] || annoOra);
@@ -1645,7 +1792,7 @@ async function renderGrafici(){
   const mc = perMese(cur), mp = perMese(old), max = Math.max(1, ...mc, ...mp);
   const totC = mc.reduce((a, b) => a + b, 0), totP = mp.reduce((a, b) => a + b, 0);
   // per ente
-  const perEnte = new Map(); cur.forEach(b => perEnte.set(nomeEnte(b), (perEnte.get(nomeEnte(b)) || 0) + Number(b.importo)));
+  const perEnte = new Map(); const etE = b => (piuCase() && !filtroCasa && b.casa ? b.casa + " · " : "") + nomeEnte(b); cur.forEach(b => perEnte.set(etE(b), (perEnte.get(etE(b)) || 0) + Number(b.importo)));
   const enti = [...perEnte.entries()].sort((a, b) => b[1] - a[1]), maxE = Math.max(1, ...enti.map(e => e[1]));
   // consumi (solo se un tipo è scelto e c'è l'unità)
   const conCons = grafTipo ? sel.filter(b => Number(b.consumo) > 0 && b.unita).sort((x, y) => dataRif(x).localeCompare(dataRif(y))).slice(-12) : [];
@@ -1653,6 +1800,7 @@ async function renderGrafici(){
   const costoMedio = !grafTipo ? null : (() => { const l = cur.filter(b => Number(b.consumo) > 0 && b.unita); const c = l.reduce((t, b) => t + Number(b.consumo), 0); return c ? {v:l.reduce((t, b) => t + Number(b.importo), 0) / c, u:l[0].unita, c} : null; })();
   const diff = totP ? Math.round((totC - totP) / totP * 100) : null;
   $("#view").innerHTML = `
+    ${chipsCase()}
     <div class="chips"><button class="chip${!grafTipo ? " on" : ""}" data-t="">Tutte</button>${tipi.map(t => `<button class="chip${grafTipo === t ? " on" : ""}" data-t="${esc(t)}">${tipoInfo(t).ic} ${esc(t)}</button>`).join("")}</div>
     <div class="chips">${(anni.length ? anni : [annoOra]).map(y => `<button class="chip${grafAnno === y ? " on" : ""}" data-y="${y}">${y}</button>`).join("")}</div>
     <div class="kpis">
@@ -1668,6 +1816,7 @@ async function renderGrafici(){
     ${conCons.length ? `<div class="card"><h2>Consumi ${esc(grafTipo)} (ultime ${conCons.length} bollette)</h2>${conCons.map(b => `<div class="hb"><div class="hbl"><span>${esc(periodoBreve(b) || fmtDate(dataRif(b)))}</span><b>${esc(String(b.consumo).replace(".", ","))} ${esc(b.unita)}</b></div><div class="hbt"><div class="hbf" style="width:${Number(b.consumo) / maxC * 100}%"></div></div></div>`).join("")}</div>` : grafTipo ? "" : `<p class="muted" style="margin:4px">Tocca un tipo (es. 💡 Luce) per vedere anche i consumi.</p>`}
     ${!list.length ? `<div class="card muted">Servono bollette con importo per disegnare i grafici.</div>` : ""}`;
   document.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { grafTipo = b.dataset.t; renderGrafici(); });
+  bindChipsCase(renderGrafici);
   document.querySelectorAll("[data-y]").forEach(b => b.onclick = () => { grafAnno = b.dataset.y; renderGrafici(); });
 }
 
@@ -1691,6 +1840,8 @@ function renderImpostazioni(){
   $("#view").innerHTML = `
     ${!me && !archivioPronto() ? `<div class="banner info"><div>📨 Qualcuno di casa ti ha mandato un invito?</div><button class="btn small" onclick="setView('invito')">Ho un invito</button></div>` : ""}
     ${rigaMenu("guida", "📖", "#fdf0dc", "Guida all'uso", "Come usare l'app, passo per passo, con le immagini")}
+    ${rigaMenu("impCase", "🏠", "#e0f2fe", "Le mie case", caseCasa().length ? esc(caseCasa().map(c => c.nome).join(", ")) : "Nessuna casa: aggiungi la prima")}
+    ${rigaMenu("impTipi", "🏷️", "#fef3c7", "Tipi di bolletta", esc(tipi().filter(t => t.k !== "Altro").map(t => t.k).join(", ")))}
     ${gest ? rigaMenu("impDest", "📁", "#e6eef8", "Dove salvare le bollette", esc(descrDestinazione())) : ""}
     ${rigaMenu("impAvvisi", "🔔", "#f8e6dc", "Avvisi di scadenza", `${s.giorniPrima} giorni prima${s.giornoStesso ? " e il giorno stesso" : ""} · domiciliate: ${s.domiciliate === "no" ? "nessun avviso" : "solo avviso"}`)}
     ${rigaMenu("impUtenti", "👥", "#edf3e4", "Utenti di casa", me ? esc(utentiCasa().map(u => u.nome).join(", ") || me.nome) + " · sei " + esc(me.nome) : archivioScelto() === "nas" ? "Usa l'archivio in più persone" : "Solo con l'archivio sul NAS")}
@@ -1815,6 +1966,93 @@ function renderImpDest(){
     }catch(e){ if(mode === "nas") setNasState("off"); }
     b.disabled = false;
   };
+}
+
+/* ---------- Le mie case ---------- */
+async function renderImpCase(){
+  const l = caseCasa(), tutte = await allBollette(), gest = puo("gestire") || !io();
+  const senza = tutte.filter(b => !b.casa);
+  $("#view").innerHTML = `
+    <div class="card"><h2>🏠 Le mie case</h2>
+      <p class="muted">Ogni casa ha la sua cartella nell'archivio, e dentro ci sono le cartelle dei fornitori. In Acquisisci l'app chiede sempre per quale casa è la bolletta.</p>
+      ${l.map(c => { const n = tutte.filter(b => b.casa === c.nome); return `<div class="entry" data-ec="${esc(c.nome)}" style="margin:8px 0 0"><div class="ico" style="background:#e0f2fe">${esc(c.icona || "🏠")}</div><div class="txt"><div class="t1">${esc(c.nome)}</div><div class="t2">${esc(c.indirizzo || "indirizzo non indicato")} · ${n.length} bollette</div></div><span class="chev" style="color:#bbb">›</span></div>`; }).join("") || `<p class="muted">Nessuna casa ancora.</p>`}
+      ${gest ? `<div class="btns"><button class="btn primary" id="cAdd">➕ Aggiungi una casa</button></div>` : ""}
+    </div>
+    ${senza.length && l.length && gest ? `<div class="card"><h2>📦 Bollette senza casa</h2><p class="muted">Ci sono <b>${senza.length}</b> bollette salvate prima delle case. Scegli dove spostarle (anche le loro cartelle sul NAS):</p>
+      <div class="seg">${l.map(c => `<button data-sp="${esc(c.nome)}">${esc(c.icona || "🏠")} ${esc(c.nome)}</button>`).join("")}</div><div id="spOut"></div></div>` : ""}`;
+  document.querySelectorAll("[data-ec]").forEach(e => e.onclick = () => setView("impCasa", e.dataset.ec));
+  if($("#cAdd")) $("#cAdd").onclick = () => setView("impCasa", "");
+  document.querySelectorAll("[data-sp]").forEach(b => b.onclick = async () => {
+    const casa = b.dataset.sp, o = $("#spOut");
+    if(!archivioPronto()){ esito(o, false, "Serve l'archivio raggiungibile (NAS acceso, a casa o con la VPN)."); return; }
+    if(!(await conferma(`Spostare ${senza.length} bollette in "${casa}"?`, "Sposta"))) return;
+    document.querySelectorAll("[data-sp]").forEach(x => x.disabled = true);
+    let i = 0, err = 0;
+    for(const x of senza){ i++; esito(o, null, `Sposto ${i} di ${senza.length}: ${x.ente || ""}…`); try{ await spostaBolletta(x, {casa}); }catch(e){ err++; } }
+    syncReminders();
+    esito(o, !err, err ? `Spostate ${senza.length - err}, ${err} non riuscite: riprova.` : `Fatto: ${senza.length} bollette spostate in "${casa}".`);
+    setTimeout(() => current === "impCase" && renderImpCase(), 1500);
+  });
+}
+async function renderImpCasa(nome){
+  const c = caseCasa().find(x => x.nome === nome) || {nome:"", indirizzo:"", icona:"🏠"}, nuova = !c.nome;
+  const n = c.nome ? (await allBollette()).filter(b => b.casa === c.nome).length : 0;
+  let icona = c.icona || "🏠";
+  $("#hTitle").textContent = nuova ? "Nuova casa" : c.nome;
+  $("#view").innerHTML = `<div class="card"><h2>${nuova ? "➕ Nuova casa" : esc(icona) + " " + esc(c.nome)}</h2>
+    <label>Nome (è anche il nome della cartella)</label><input id="hcNome" value="${esc(c.nome)}" placeholder="es. Casa mamma" autocomplete="off"${n ? " disabled" : ""}>
+    ${n ? `<p class="muted">Il nome non si può cambiare perché la casa ha già ${n} bollette nella sua cartella.</p>` : ""}
+    <label>Indirizzo (aiuta a riconoscere le bollette)</label><input id="hcInd" value="${esc(c.indirizzo || "")}" placeholder="es. Via Roma 12, Bari" autocomplete="off">
+    <label>Icona</label><div class="seg" id="hcIc">${ICONE_CASA.map(i => `<button data-i="${i}"${i === icona ? ' class="on"' : ""}>${i}</button>`).join("")}</div>
+    <div class="btns"><button class="btn primary" id="hcSalva">💾 Salva</button></div>
+    ${!nuova && !n ? `<div class="btns"><button class="btn danger" id="hcDel">🗑️ Togli questa casa</button></div>` : ""}
+    <div id="hcOut"></div></div>`;
+  document.querySelectorAll("#hcIc button").forEach(b => b.onclick = () => { icona = b.dataset.i; document.querySelectorAll("#hcIc button").forEach(x => x.classList.toggle("on", x === b)); });
+  $("#hcSalva").onclick = async () => {
+    const o = $("#hcOut"), nomeN = safeName($("#hcNome").value), ind = $("#hcInd").value.trim();
+    if(!nomeN){ esito(o, false, "Scrivi il nome della casa."); return; }
+    if(!archivioPronto()){ esito(o, false, "Serve l'archivio raggiungibile per salvare la casa."); return; }
+    esito(o, null, "Salvo…");
+    try{
+      if(nuova) await creaCasa({nome:nomeN, indirizzo:ind, icona}, m => esito(o, null, m));
+      else{
+        if(nomeN !== c.nome && caseCasa().some(x => x.nome.toLowerCase() === nomeN.toLowerCase())) throw new Error("C'è già una casa con questo nome.");
+        await scriviCase(caseCasa().map(x => x.nome === c.nome ? Object.assign({}, x, {nome:nomeN, indirizzo:ind, icona}) : x));
+      }
+      toast("Casa salvata."); setView("impCase", undefined, true);
+    }catch(e){ esito(o, false, e.message); }
+  };
+  if($("#hcDel")) $("#hcDel").onclick = async () => {
+    if(!(await conferma(`Togliere la casa "${c.nome}"?`, "Togli", true))) return;
+    try{ await scriviCase(caseCasa().filter(x => x.nome !== c.nome)); toast("Casa tolta."); setView("impCase", undefined, true); }catch(e){ esito($("#hcOut"), false, e.message); }
+  };
+}
+/* ---------- Tipi di bolletta (quelli di base + quelli aggiunti) ---------- */
+function renderImpTipi(){
+  const extra = settings().tipiExtra || [];
+  let icona = "📄";
+  const ICONE = ["📄","🛡️","📺","🔧","🚗","🏥","🎓","🌿","🔥","💳"];
+  $("#view").innerHTML = `<div class="card"><h2>🏷️ Tipi di bolletta</h2>
+      <p class="muted">Il tipo compare nel nome della cartella del fornitore (es. "Enel Energia - Luce").</p>
+      ${TIPI_BASE.map(t => `<div class="kvr"><span>${t.ic} ${esc(t.k)}</span><b class="muted">di base</b></div>`).join("")}
+      ${extra.map((t, i) => `<div class="kvr"><span>${esc(t.ic || "📄")} ${esc(t.k)}</span><button class="btn small danger" data-rt="${i}">Togli</button></div>`).join("")}
+    </div>
+    <div class="card"><h2>➕ Aggiungi un tipo</h2>
+      <label>Nome</label><input id="ntNome" placeholder="es. Assicurazione casa, Canone RAI, Caldaia" autocomplete="off">
+      <label>Icona</label><div class="seg" id="ntIc">${ICONE.map(i => `<button data-i="${i}"${i === icona ? ' class="on"' : ""}>${i}</button>`).join("")}</div>
+      <div class="btns"><button class="btn primary" id="ntAdd">💾 Aggiungi</button></div><div id="ntOut"></div></div>`;
+  document.querySelectorAll("#ntIc button").forEach(b => b.onclick = () => { icona = b.dataset.i; document.querySelectorAll("#ntIc button").forEach(x => x.classList.toggle("on", x === b)); });
+  const salva = async l => { if(archivioPronto()) await scriviCase(null, l); else saveSettings({tipiExtra:l}); };
+  $("#ntAdd").onclick = async () => {
+    const k = safeName($("#ntNome").value).replace(/\s-\s/g, " "), o = $("#ntOut");
+    if(!k){ esito(o, false, "Scrivi il nome del tipo."); return; }
+    if(tipi().some(t => t.k.toLowerCase() === k.toLowerCase())){ esito(o, false, "Questo tipo c'è già."); return; }
+    try{ await salva(extra.concat([{k, ic:icona}])); toast("Tipo aggiunto: " + k); renderImpTipi(); }catch(e){ esito(o, false, e.message); }
+  };
+  document.querySelectorAll("[data-rt]").forEach(b => b.onclick = async () => {
+    const t = extra[+b.dataset.rt]; if(!(await conferma(`Togliere il tipo "${t.k}"?\n\nLe bollette già salvate restano come sono.`, "Togli"))) return;
+    try{ await salva(extra.filter((_, i) => i !== +b.dataset.rt)); renderImpTipi(); }catch(e){ toast(e.message, true); }
+  });
 }
 
 /* ---------- Avvisi di scadenza ---------- */
@@ -1948,8 +2186,17 @@ function renderGuida(){
     ${passo(4, "Si apre l'app, che <b>legge da sola</b> la bolletta e riempie i campi. Controlla i dati (vedi il capitolo «Controllare i dati») e tocca <b>💾 Salva</b>.")}
     ${nota("Se nell'elenco di Condividi non vedi «Bollette», scorri fino in fondo e tocca <b>Altro</b> o <b>Altre app</b>.")}`),
 
+  cap("case", "🏠", "Più case (la tua, quella della mamma…)", `
+    <p>Le bollette si dividono <b>per casa</b>. Nell'archivio ogni casa ha la sua cartella, e dentro ci sono le cartelle dei fornitori: <i>Casa mia → Enel Energia - Luce → bolletta</i>.</p>
+    ${passo(1, "Vai in <b>Impostazioni → Le mie case</b> e tocca <b>➕ Aggiungi una casa</b>. Scrivi il nome (es. <i>Casa mamma</i>), l'indirizzo e scegli un'icona, poi <b>Salva</b>.",
+      schermo("Le mie case", tile("🏠", "#e0f2fe", "Casa mia", "Via San Bernardino 45 · 31 bollette") + tile("👵", "#e0f2fe", "Casa mamma", "Via Roma 12, Bari · 9 bollette") + tile("➕", "#f1f5f9", "Aggiungi una casa", "es. casa al mare", true)))}
+    ${passo(2, "In <b>Acquisisci</b> l'app chiede per prima cosa <b>«Per quale casa?»</b>: tocca la casa giusta. Quando la bolletta arriva con Condividi, l'app prova a riconoscere la casa dall'indirizzo, dal codice cliente o dal POD; se non ci riesce te lo chiede.")}
+    ${passo(3, "Nella <b>Home</b>, in <b>Archivio</b>, in <b>Scadenze</b> e nei <b>Grafici</b> trovi in alto le case: tocca una casa per vedere solo le sue bollette, oppure <b>Tutte</b>.")}
+    ${nota("Il nome di una casa che ha già delle bollette non si cambia (è il nome della sua cartella). L'indirizzo e l'icona sì.")}
+    ${nota("Servono altri tipi di bolletta (assicurazione, canone RAI, caldaia…)? <b>Impostazioni → Tipi di bolletta → Aggiungi</b>.")}`),
+
   cap("acquisisci", "📥", "Archiviare una bolletta con Acquisisci", `
-    ${passo(1, "Nella Home tocca <b>Acquisisci</b>.", schermo("Bollette di casa", tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta", true), true))}
+    ${passo(1, "Nella Home tocca <b>Acquisisci</b>, poi tocca la <b>casa</b> della bolletta.", schermo("Bollette di casa", tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta", true), true))}
     ${passo(2, "Se la bolletta è un <b>PDF salvato nel telefono</b> (per esempio nella cartella Download) tocca <b>📄 Scegli il PDF</b>. Se è di <b>carta</b> tocca <b>📷 Scatta una foto</b>.",
       schermo("Acquisisci", `<div class="g-card"><b>1. La bolletta</b><div class="g-tile g-tocca"><span class="g-ic" style="background:#ccfbf1">📄</span><span><b>Scegli il PDF</b><br><small>La bolletta arrivata per email</small></span></div><div class="g-tile"><span class="g-ic" style="background:#edf3e4">📷</span><span><b>Scatta una foto</b><br><small>Bolletta di carta</small></span></div></div>`))}
     ${passo(3, "Con la foto, l'app chiede <b>«C'è un'altra pagina?»</b>. Di solito basta la <b>prima pagina</b>, dove ci sono importo e scadenza: tocca <b>✅ No, basta così: leggi</b>.")}
@@ -1963,7 +2210,7 @@ function renderGuida(){
     ${passo(2, "Un campo <b>giallo</b> vuol dire che la lettura del telefono e quella online non erano d'accordo: sotto c'è scritto cosa aveva letto il telefono. Guarda la bolletta e correggi se serve.")}
     ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto) o <b>Già pagata</b>. L'app parte sempre da «Da pagare»: «Domiciliata» lo scegli tu.",
       `<div class="g-row"><span class="g-radio on g-tocca">Da pagare</span><span class="g-radio">Domiciliata</span><span class="g-radio">Già pagata</span></div>`)}
-    ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>.")}
+    ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Casa mia / Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>. In alto, sotto <b>Casa</b>, puoi cambiare la casa.")}
     ${nota("Se la stessa bolletta è già nell'archivio, l'app te lo dice prima di salvarla due volte.")}`),
 
   cap("archivio", "🗂️", "Ritrovare una bolletta", `
