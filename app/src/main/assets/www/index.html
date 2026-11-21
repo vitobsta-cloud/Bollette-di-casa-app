@@ -1164,8 +1164,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.10";
+const VERSIONE = "v1.11";
 const CRONOLOGIA = [
+  {v:"v1.11", d:"21/11/2026", n:[
+    "Acquisisci: casa sbagliata? Tocca il nome della casa («… · cambia») oppure ← Indietro e torni a «Per quale casa?»",
+    "Tornando dalla Home, se non avevi ancora scelto la bolletta, Acquisisci richiede la casa"
+  ]},
   {v:"v1.10", d:"21/11/2026", n:[
     "«Già pagata» e «Segna come pagata»: menu con un riquadro e il suo simbolo per ogni modo di pagamento (💶 Contanti, 🏧 Bancomat, 💳 Carta, 🏦 Home banking…); un tocco e fatto",
     "Lettura bollette: spiegato come fare una chiave Google solo per Bollette, in un progetto nuovo"
@@ -1258,7 +1262,7 @@ async function renderHome(){
     ${tile("grafici", "📊", "#e8f4f1", "Grafici", "Spese e consumi nel tempo")}
     ${tile("impostazioni", "⚙️", "#ece7f4", "Impostazioni", "Archivio, avvisi, utenti di casa, guida")}
     ${footerHTML()}`;
-  document.querySelectorAll(".tile").forEach(t => t.onclick = () => setView(t.dataset.v));
+  document.querySelectorAll(".tile").forEach(t => t.onclick = () => { if(t.dataset.v === "acquisisci" && bozzaVuota()){ draft = null; cancellaBozza(); } setView(t.dataset.v); });
   document.querySelectorAll("[data-go]").forEach(x => x.onclick = e => { e.preventDefault(); setView(x.dataset.go); });
   bindFooter();
   if($("#bNuovi")) $("#bNuovi").onclick = () => setView("archivio", {nuovi:true});
@@ -1297,7 +1301,7 @@ async function renderAcquisisci(edit){
     ${nasBanner()}${await pendingBanner()}
     ${chiediCasa ? cardCasa() : ""}
     <div class="card${nascondiDoc ? " hidden" : ""}">
-      <h2>${isEdit ? "📎 Documenti" : "1. La bolletta"}${!isEdit && draft.casa && piuCase() ? ` <span class="pill casa" style="vertical-align:3px">${esc(casaInfo(draft.casa).icona)} ${esc(draft.casa)}</span>` : ""}</h2>
+      <h2>${isEdit ? "📎 Documenti" : "1. La bolletta"}${!isEdit && draft.casa && piuCase() ? ` <button class="pill casa" id="bCambiaCasa" style="vertical-align:3px;border:0;font:inherit;font-size:12px;cursor:pointer">${esc(casaInfo(draft.casa).icona)} ${esc(draft.casa)} · cambia</button>` : ""}</h2>
       ${vuota ? `<p class="muted" style="margin:0">Da dove prendi la bolletta?</p>
         <button class="bigpick" id="bFile"><span class="ic" style="background:#ccfbf1">📄</span><span><span class="t1">Scegli il PDF <span class="consig">consigliato</span></span><br><span class="t2">La bolletta arrivata per email, salvata nel telefono</span></span></button>
         <button class="bigpick" id="bCam"><span class="ic" style="background:#edf3e4">📷</span><span><span class="t1">Scatta una foto</span><br><span class="t2">Bolletta di carta, anche in più foto</span></span></button>
@@ -1376,6 +1380,8 @@ async function renderAcquisisci(edit){
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
   bindCardCasa();
+  // casa sbagliata? si torna alla scelta della casa (finché la bolletta non è ancora stata letta)
+  if($("#bCambiaCasa")) $("#bCambiaCasa").onclick = () => { readForm(); draft.casa = ""; salvaBozza(); renderAcquisisci(); };
   document.querySelectorAll("#segCasa button").forEach(b => b.onclick = () => { readForm(); draft.casa = b.dataset.c; document.querySelectorAll("#segCasa button").forEach(x => x.classList.toggle("on", x === b)); $("#casaNota").innerHTML = ""; updPreview(); salvaBozza(); });
   $("#bCam").onclick = () => $("#camInput").click();
   $("#bFile").onclick = () => $("#fileInput").click();
@@ -1443,6 +1449,7 @@ async function creaCasa(c, avanza){
   }
   return lista;
 }
+const bozzaVuota = () => !draft || (!draft._edit && !(draft.pendingFiles || []).length && !draft.ente && !draft.importo);
 function readForm(){
   if(!$("#fEnte")) return;
   const v = id => $("#" + id).value.trim(), n = id => v(id) === "" ? "" : Number(v(id));
@@ -2637,6 +2644,7 @@ function renderImpInfo(){
 window.onAndroidBack = () => {
   const ov = document.querySelector(".viewer, .modal"); if(ov){ ov.remove(); return true; }
   if(current === "home") return false;              // dalla pagina iniziale si esce dall'app
+  if(current === "acquisisci" && draft && draft.casa && piuCase() && bozzaVuota()){ draft.casa = ""; renderAcquisisci(); return true; }
   let prev = navStack.pop();
   while(prev && prev.v === "dettaglio" && !prev.arg) prev = navStack.pop();
   if(prev) setView(prev.v, prev.arg, true); else setView("home", undefined, true);
