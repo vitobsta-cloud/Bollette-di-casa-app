@@ -620,8 +620,17 @@ function parseBolletta(text){
   else if(/lettur[ae]\s+(?:reali?|rilevat|effettiv)|autolettura/i.test(T)) r.lettura = "reale";
 
   // ---- pagamento ----
-  if(/addebito\s+(?:diretto|automatico|su\s+(?:c\/c|conto))|domiciliazion|\bsdd\b|\brid\b|addebitat[oa]\s+sul\s+(?:tuo\s+)?conto|pagamento\s+tramite\s+banca/i.test(T)
-     && !/non\s+(?:hai|è)\s+(?:attiva\s+)?(?:la\s+)?domiciliazion|attiva\s+la\s+domiciliazion/i.test(T)) r.stato = "dom";
+  // Domiciliata solo se la bolletta lo dice chiaramente E non c'è un bollettino/avviso da pagare.
+  // Nel dubbio resta "da pagare": meglio un avviso in più che una bolletta non pagata.
+  const domSi = /(?:sar[àa]|verr[àa]|viene|è\s+stat[oa])\s+addebitat[oa]|addebitat[oa]\s+(?:sul|su\s+(?:c\/c|conto))|importo\s+(?:sar[àa]\s+)?addebitato|(?:modalit[àa]|metodo|tipo)\s+di\s+pagamento\s*:?\s*(?:addebito|domiciliazion|sdd|rid\b|sepa)|pagamento\s+(?:tramite|con|mediante)\s+(?:addebito|domiciliazione|sdd|rid\b)|domiciliazione\s+(?:bancaria|postale)\s+attiva|hai\s+(?:gi[àa]\s+)?attiv[ao]\s+la\s+domiciliazion/i.test(T);
+  const offerta = /attiva\s+(?:subito\s+)?(?:la\s+)?domiciliazion|puoi\s+(?:attivare|pagare\s+con)|richied[ie]\s+(?:la\s+)?domiciliazion|non\s+(?:hai|è)\s+(?:attiva\s+)?(?:la\s+)?domiciliazion/i;
+  const bollettino = /bollettino|codice\s+avviso|avviso\s+di\s+pagamento|pago\s*pa|cbill|\bcod(?:ice)?\.?\s+(?:interbancario|cbill)|numero\s+avviso|paga\s+(?:online|in\s+posta|presso)/i.test(T);
+  if(domSi && !bollettino){
+    // se l'unica frase "da domiciliata" è dentro un'offerta, non vale
+    const frasi = T.split(/(?<=[.!?\n])/).filter(f => /addebit|domiciliazion|\bsdd\b|\brid\b/i.test(f));
+    if(frasi.some(f => !offerta.test(f))) r.stato = "dom";
+  }
+  if(r.stato !== "dom" && domSi && bollettino) r.forseDom = true;
   if(/conguaglio/i.test(T)) r.note = "Bolletta di conguaglio";
   if(/\bacconto\b/i.test(T) && !r.note) r.note = "";
 
@@ -701,7 +710,7 @@ async function testoDocumenti(docs, avanza){
 /* ---------- Lettura online gratuita con Google Gemini ---------- */
 const PROMPT_LETTURA = () => `Leggi questa bolletta/fattura italiana (luce, gas, acqua, rifiuti, telefono, condominio) e rispondi SOLO con JSON:
 {"ente":"nome commerciale del fornitore (es. Enel Energia, A2A Energia, Acquedotto Pugliese, TIM, Comune di …)","tipo":"Luce|Gas|Luce e gas|Acqua|Rifiuti (TARI)|Telefono e internet|Condominio|Altro","importo":numero totale da pagare in euro|null,"scadenza":"AAAA-MM-GG data entro cui pagare","emessa":"AAAA-MM-GG data di emissione","numero":"numero della fattura","periodoDa":"AAAA-MM-GG","periodoA":"AAAA-MM-GG","domiciliata":true|false,"codiceCliente":"","pod":"codice POD (luce) o PDR (gas)","indirizzo":"indirizzo della fornitura","consumo":numero dei consumi fatturati nel periodo|null,"unita":"kWh|Smc|m³|","lettura":"reale|stimata|","conguaglio":true|false}
-domiciliata = true solo se la bolletta dice che verrà addebitata sul conto corrente (domiciliazione, SDD, RID). Se un dato non c'è lascialo vuoto. Oggi è ${todayISO()}.`;
+domiciliata = true SOLO se la bolletta dice che QUESTO importo verrà addebitato automaticamente sul conto corrente (domiciliazione attiva, SDD, RID). Se c'è un bollettino, un codice avviso PagoPA o CBILL da pagare, oppure la bolletta propone soltanto di attivare la domiciliazione, domiciliata = false. Se un dato non c'è lascialo vuoto. Oggi è ${todayISO()}.`;
 async function geminiCall(body, model){
   const s = settings();
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model || s.geminiModel || DEFAULTS.geminiModel)}:generateContent`, {method:"POST", headers:{"content-type":"application/json", "x-goog-api-key":s.geminiKey}, body:JSON.stringify(body)});
@@ -756,7 +765,7 @@ async function geminiRead(files){
   const o = JSON.parse(m[0]);
   const d = v => /^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : "";
   return {ente:o.ente || "", tipo:TIPI.some(t => t.k === o.tipo) ? o.tipo : "", importo:Number(o.importo) > 0 ? Math.round(Number(o.importo) * 100) / 100 : "",
-    scadenza:d(o.scadenza), emessa:d(o.emessa), numero:o.numero || "", periodoDa:d(o.periodoDa), periodoA:d(o.periodoA), stato:o.domiciliata === true ? "dom" : "",
+    scadenza:d(o.scadenza), emessa:d(o.emessa), numero:o.numero || "", periodoDa:d(o.periodoDa), periodoA:d(o.periodoA), stato:o.domiciliata === true ? "dom" : "da",
     codiceCliente:o.codiceCliente || "", pod:o.pod || "", indirizzo:o.indirizzo || "", consumo:Number(o.consumo) > 0 ? Number(o.consumo) : "",
     unita:["kWh","Smc","m³"].includes(o.unita) ? o.unita : "", lettura:["reale","stimata"].includes(o.lettura) ? o.lettura : "", note:o.conguaglio === true ? "Bolletta di conguaglio" : ""};
 }
@@ -768,7 +777,9 @@ function incrocia(off, on){
   if(on.tipo && (!off.tipo || off.tipo === "Altro")) r.tipo = on.tipo;
   for(const k of ["numero","emessa","periodoDa","periodoA","codiceCliente","pod","indirizzo","lettura","note"]) if(!vuoto(on[k]) && vuoto(off[k])) r[k] = on[k];
   if(!vuoto(on.consumo) && vuoto(off.consumo)){ r.consumo = on.consumo; r.unita = on.unita || off.unita; }
-  if(on.stato === "dom") r.stato = "dom";
+  // domiciliata solo se lo dicono tutte e due le letture; se lo dice una sola, resta "da pagare" e si avvisa
+  if(on.stato === "dom" && off.stato !== "dom"){ r.stato = "da"; r.forseDom = true; }
+  if(off.stato === "dom" && on.stato !== "dom" && on.stato !== undefined){ r.stato = "da"; r.forseDom = true; }
   if(on.scadenza){ if(off.scadenza && off.scadenza !== on.scadenza) dubbi.scadenza = off.scadenza; r.scadenza = on.scadenza; }
   if(Number(on.importo) > 0){ if(Number(off.importo) > 0 && Math.abs(Number(off.importo) - Number(on.importo)) > 0.01) dubbi.importo = off.importo; r.importo = on.importo; }
   return {r, dubbi};
@@ -1069,8 +1080,11 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.0";
+const VERSIONE = "v1.1";
 const CRONOLOGIA = [
+  {v:"v1.1", d:"21/11/2026", n:[
+    "Domiciliazione più prudente: se c'è il bollettino o il codice PagoPA la bolletta resta «da pagare»; se l'app non è sicura lo scrive e lascia decidere a te"
+  ]},
   {v:"v1.0", d:"21/11/2026", n:[
     "Prima versione di Bollette di casa",
     "Acquisisci: PDF dall'email (anche con Condividi da Gmail) o foto della bolletta di carta",
@@ -1320,6 +1334,7 @@ async function doLeggi(){
       draft[k] = r[k]; trovati.push(k);
     }
     if(r.stato === "dom" && !draft._edit && draft.stato === "da") draft.stato = "dom";
+    const forseDom = !!r.forseDom && draft.stato !== "dom";
     if(!draft._edit) draft.datiAuto = true;
     await renderAcquisisci();
     const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && "scadenza"].filter(Boolean);
@@ -1328,6 +1343,7 @@ async function doLeggi(){
       + (nd ? ` <b>Controlla i campi in giallo</b>: le due letture non erano d'accordo.` : "")
       + (manca.length && trovati.length ? `<div class="g-nota att" style="margin-top:8px">⚠️ Non ho trovato: <b>${manca.join(", ")}</b>. Scrivilo tu guardando la bolletta.</div>` : "")
       + (draft.stato === "dom" ? `<div class="g-nota" style="margin-top:8px">🏦 La bolletta dice che è <b>domiciliata</b>: si paga da sola sul conto. Se non è così tocca «Da pagare».</div>` : "")
+      + (forseDom ? `<div class="g-nota" style="margin-top:8px">🏦 La bolletta parla di addebito sul conto, ma non sono sicuro che sia <b>domiciliata</b>: l'ho lasciata <b>da pagare</b>. Se invece si paga da sola, tocca «Domiciliata».</div>` : "")
       + (modoLettura.startsWith("solo telefono") ? ` <button class="btn small" id="bRiprovaOn">🔄 Riprova online</button>` : "");
     if($("#bRiprovaOn")) $("#bRiprovaOn").onclick = () => doLeggi();
   }catch(e){
