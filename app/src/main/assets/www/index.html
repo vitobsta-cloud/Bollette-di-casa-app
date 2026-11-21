@@ -685,6 +685,10 @@ function parseBolletta(text){
     const buona = cand.filter(c => (c.peso === 0 || !escluse.has(c.d)) && (!r.emessa || c.d >= r.emessa)).sort((a, b) => a.peso - b.peso)[0];
     if(buona) r.scadenza = buona.d; else if(r.scadenza && escluse.has(r.scadenza)) r.scadenza = "";
   }
+  // prospetto delle rate del condominio (tabella con più condòmini): gli importi non si indovinano dal testo
+  if(/prospetto\s+(?:delle\s+)?rate|piano\s+(?:delle\s+)?rate|riparto\s+rate|rate\s+preventivo/i.test(T) || (/condomin/i.test(T) && (T.match(/\b\d\s*[aª°à²³è]?\s*rata\b/gi) || []).length >= 3)){
+    r.prospettoRate = true; r.tipo = "Condominio"; r.importo = ""; r.scadenza = "";
+  }
   // date nel futuro lontano o prima del 2000: scartate
   for(const k of ["scadenza","emessa","periodoDa","periodoA"]) if(r[k] && (r[k] < "2000-01-01" || daysLeft(r[k]) > 400)) r[k] = "";
   if(r.periodoDa && r.periodoA && r.periodoDa > r.periodoA){ const x = r.periodoDa; r.periodoDa = r.periodoA; r.periodoA = x; }
@@ -1186,8 +1190,13 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.12";
+const VERSIONE = "v1.13";
 const CRONOLOGIA = [
+  {v:"v1.13", d:"21/11/2026", n:[
+    "Rate del condominio: dalla foto del prospetto l'app trova le righe delle tue case e crea una scadenza per ogni rata (con il suo avviso)",
+    "Le mie case: nuovo campo «Nome nel condominio» (come è scritto nei prospetti, es. TELAROLI SILVIA)",
+    "Le rate evidenziate nel foglio sono segnalate; «Già pagata» lo scegli tu, rata per rata"
+  ]},
   {v:"v1.12", d:"21/11/2026", n:[
     "Lettura sul telefono migliorata con una bolletta vera (Servizio Elettrico Nazionale): «TOTALE DA PAGARE» vince sugli altri totali, anche quando l'importo è scritto sopra la scritta",
     "Riconosciuti il periodo «BIMESTRE OTT.2026 - NOV.2026», il numero «N. Fattura elettronica … Del …», «N° CLIENTE» e l'indirizzo «Forniamo energia in …»"
@@ -1338,7 +1347,8 @@ async function renderAcquisisci(edit){
       <div class="status" id="leggiStatus"></div>
       <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
     </div>
-    <div class="card${vuota ? " hidden" : ""}" id="formCard">
+    ${draft.rate ? cardRate() : ""}
+    <div class="card${vuota || draft.rate ? " hidden" : ""}" id="formCard">
       <h2>${isEdit ? "Dati" : "2. Controlla i dati"}</h2>
       ${caseCasa().length ? `<label>Casa</label><div class="seg" id="segCasa">${caseCasa().map(c => `<button data-c="${esc(c.nome)}"${c.nome === draft.casa ? ' class="on"' : ""}>${esc(c.icona || "🏠")} ${esc(c.nome)}</button>`).join("")}</div><div id="casaNota"></div>` : ""}
       <div class="row">
@@ -1405,7 +1415,7 @@ async function renderAcquisisci(edit){
   });
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
-  bindCardCasa();
+  bindCardCasa(); if(draft.rate) bindCardRate();
   // casa sbagliata? si torna alla scelta della casa (finché la bolletta non è ancora stata letta)
   if($("#bCambiaCasa")) $("#bCambiaCasa").onclick = () => { readForm(); draft.casa = ""; salvaBozza(); renderAcquisisci(); };
   document.querySelectorAll("#segCasa button").forEach(b => b.onclick = () => { readForm(); draft.casa = b.dataset.c; document.querySelectorAll("#segCasa button").forEach(x => x.classList.toggle("on", x === b)); $("#casaNota").innerHTML = ""; updPreview(); salvaBozza(); });
@@ -1496,7 +1506,7 @@ async function updPreview(){
 async function doppione(b){
   if(!b.ente) return null;
   const k = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-  return (await allBollette()).find(x => x.id !== b.id && k(x.ente) === k(b.ente) && ((b.numero && k(x.numero) === k(b.numero)) || (b.scadenza && x.scadenza === b.scadenza && Number(b.importo) > 0 && Math.abs(Number(x.importo) - Number(b.importo)) < 0.01))) || null;
+  return (await allBollette()).find(x => x.id !== b.id && k(x.ente) === k(b.ente) && k(x.casa) === k(b.casa) && ((b.numero && k(x.numero) === k(b.numero)) || (b.scadenza && x.scadenza === b.scadenza && Number(b.importo) > 0 && Math.abs(Number(x.importo) - Number(b.importo)) < 0.01))) || null;
 }
 function drawThumbs(){
   const t = $("#thumbs"); if(!t) return;
@@ -1557,6 +1567,8 @@ async function doLeggi(){
     if(!docs.length){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
     lastText = await testoDocumenti(docs, msg);
     let r = parseBolletta(lastText);
+    // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
+    if(r.prospettoRate && !draft._edit){ await avviaRate(docs, msg); return; }
     dubbiLettura = {}; modoLettura = "telefono";
     if(settings().geminiKey && settings().incrocio !== false){
       msg("Letta sul telefono ✓ · controllo anche online…");
@@ -1954,6 +1966,127 @@ async function renderGrafici(){
   document.querySelectorAll("[data-y]").forEach(b => b.onclick = () => { grafAnno = b.dataset.y; renderGrafici(); });
 }
 
+
+/* =========================================================
+   RATE DEL CONDOMINIO (prospetto con una riga per condòmino e le colonne delle rate)
+   ========================================================= */
+const nomiCondominio = () => caseCasa().filter(c => c.nomeCond);
+async function avviaRate(docs, msg){
+  draft.rate = {stato:"nomi", righe:[], condominio:"", errore:""};
+  if(nomiCondominio().length) await cercaRate(docs, msg); else renderAcquisisci();
+}
+async function cercaRate(docs, msg){
+  docs = docs || draft.pendingFiles;
+  const nomi = nomiCondominio();
+  draft.rate = Object.assign(draft.rate || {}, {stato:"cerco", errore:""});
+  if(!settings().geminiKey){ draft.rate = mano(nomi, "Per leggere la tabella delle rate serve il controllo online di Google (Impostazioni → Lettura bollette). Intanto puoi scriverle a mano qui sotto."); renderAcquisisci(); return; }
+  msg && msg("Cerco nella tabella le righe di " + nomi.map(c => c.nomeCond).join(" e ") + "…");
+  try{
+    const d = await geminiRate(docs, nomi.map(c => c.nomeCond));
+    const righe = nomi.map(c => {
+      const k = x => String(x || "").toLowerCase().replace(/[^a-z]/g, "");
+      const g = (d.righe || []).find(x => k(x.cercato) === k(c.nomeCond)) || (d.righe || []).find(x => k(x.nominativo).includes(k(c.nomeCond)) || k(c.nomeCond).includes(k(x.nominativo)));
+      const rate = (g && Array.isArray(g.rate) ? g.rate : []).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.scadenza || "") && Number(x.importo) > 0)
+        .map((x, i) => ({numero:Number(x.numero) || i + 1, scadenza:x.scadenza, importo:Math.round(Number(x.importo) * 100) / 100, stato:"da", pagataIl:"", pagataCon:"", evidenziata:x.evidenziata === true}));
+      return {casa:c.nome, nominativo:g ? g.nominativo : "", rate};
+    });
+    draft.rate = {stato:"controllo", condominio:String(d.condominio || "Condominio").trim(), gestioneDa:d.gestioneDa || "", gestioneA:d.gestioneA || "", righe, errore:""};
+  }catch(e){ draft.rate = mano(nomi, "Lettura online non riuscita (" + e.message + "). Puoi riprovare oppure scrivere le rate a mano."); }
+  salvaBozza(); renderAcquisisci();
+}
+function mano(nomi, errore){ return {stato:"controllo", condominio:"Condominio", righe:nomi.map(c => ({casa:c.nome, nominativo:"", rate:[1, 2, 3, 4].map(n => ({numero:n, scadenza:"", importo:"", stato:"da"}))})), errore}; }
+async function geminiRate(files, nomi){
+  const parts = files.slice(0, 2).map(f => ({inline_data:{mime_type:f.mime, data:f.data}}));
+  parts.push({text:`Questo è un prospetto delle rate di un condominio italiano: una tabella con una riga per condòmino. Considera SOLO le colonne delle rate (1ª rata, 2ª rata, 3ª rata, 4ª rata…), ognuna con la sua data di scadenza scritta nell'intestazione della colonna. Ignora Totale preventivo, Saldo gestione precedente, Totale generale, Versamenti, Residuo e le scritte a mano.
+Per ciascuno di questi nominativi trova la sua riga (il nome può essere scritto in modo leggermente diverso): ${nomi.map(n => '"' + n + '"').join(", ")}.
+Rispondi SOLO con JSON: {"condominio":"nome del condominio (es. Condominio Residence Gli Oleandri)","gestioneDa":"AAAA-MM-GG","gestioneA":"AAAA-MM-GG","righe":[{"cercato":"il nome che ti ho dato","nominativo":"come è scritto nella tabella","rate":[{"numero":1,"scadenza":"AAAA-MM-GG","importo":numero,"evidenziata":true|false}]}]}. "evidenziata" è true se la cella dell'importo è colorata con l'evidenziatore. Leggi gli importi con attenzione, cifra per cifra, sulla riga giusta. Se un nominativo non c'è, restituiscilo con "rate":[].`});
+  const {status, j} = await geminiSicuro({contents:[{role:"user", parts}], generationConfig:{temperature:0, responseMimeType:"application/json"}});
+  if(status === 429) throw new Error("limite gratuito di Google raggiunto");
+  if(status !== 200) throw new Error("Google: " + (j.error?.message || status));
+  const txt = (j.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+  const m = txt.match(/\{[\s\S]*\}/); if(!m) throw new Error("risposta non leggibile");
+  return JSON.parse(m[0]);
+}
+function cardRate(){
+  const R = draft.rate, nomi = nomiCondominio();
+  if(R.stato === "nomi" || !nomi.length) return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate del condominio</h2>
+    <p class="muted">Per trovare le tue righe nella tabella scrivi, per ogni casa che è in questo condominio, il <b>nome come è scritto nel prospetto</b> (es. TELAROLI SILVIA). Lascia vuoto per le case che non c'entrano. Lo scrivi una volta sola.</p>
+    ${caseCasa().map((c, i) => `<label>${esc((c.icona || "🏠") + " " + c.nome)}</label><input data-nc="${i}" value="${esc(c.nomeCond || "")}" placeholder="nome nel condominio" autocapitalize="characters" autocomplete="off">`).join("")}
+    <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div><div id="rOut"></div></div>`;
+  if(R.stato === "cerco") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate</h2><div class="status"><span class="spinner"></span>Cerco le tue righe nella tabella…</div></div>`;
+  const riga = (h, i) => `<div style="margin-top:12px"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : "· riga non trovata: scrivi le rate a mano"}</span>
+      ${h.rate.map((x, j) => `<div class="entry" style="flex-wrap:wrap;margin-top:6px"><div class="txt" style="flex:1 1 100%"><div class="row" style="align-items:flex-end">
+        <div style="flex:0 0 56px"><label>Rata</label><b style="font-size:16px">${x.numero}ª</b></div>
+        <div><label>Scadenza</label><input type="date" data-rs="${i}-${j}" value="${esc(x.scadenza)}"></div>
+        <div><label>Importo €</label><input type="number" step="0.01" inputmode="decimal" data-ri="${i}-${j}" value="${esc(x.importo)}"></div></div>
+        <div style="margin-top:8px">${x.stato === "pag" ? `<span class="pill pag">✅ Pagata il ${fmtDate(x.pagataIl)}${x.pagataCon ? " · " + esc(x.pagataCon) : ""}</span> <button class="btn small" data-rnp="${i}-${j}">↩️ Da pagare</button>` : `<button class="btn small" data-rp="${i}-${j}">✅ Già pagata</button>`}${x.evidenziata ? ` <span class="pill warn">🖍️ evidenziata nel foglio</span>` : ""} <button class="btn small danger" data-rx="${i}-${j}">Togli</button></div></div></div>`).join("")}
+      <button class="btn small" data-radd="${i}" style="margin-top:6px">＋ Aggiungi una rata</button></div>`;
+  const n = R.righe.reduce((t, h) => t + h.rate.length, 0);
+  return `<div class="card" id="cardRate"><h2>🏢 Rate del condominio</h2>
+    ${R.errore ? `<div class="g-nota att">⚠️ ${esc(R.errore)}</div>` : `<p class="muted">Controlla date e importi con il prospetto. Ogni rata diventa una scadenza con il suo avviso.</p>`}
+    <label>Condominio</label><input id="rCond" value="${esc(R.condominio)}">
+    ${R.righe.map(riga).join("")}
+    <div class="dove">📁 Ogni rata va in: <b>Casa / ${esc(safeName(R.condominio || "Condominio"))} - Condominio / data scad. importo</b>, con la foto del prospetto.</div>
+    <div class="btns"><button class="btn" id="rRiprova">🔄 Rileggi</button><button class="btn" id="rNomi">✏️ Nomi</button><button class="btn primary" id="rSalva">💾 Salva ${n} rate</button></div><div id="rOut"></div></div>`;
+}
+function leggiRate(){
+  const R = draft.rate; if(!R || R.stato !== "controllo") return;
+  if($("#rCond")) R.condominio = $("#rCond").value.trim();
+  document.querySelectorAll("[data-rs]").forEach(el => { const [i, j] = el.dataset.rs.split("-").map(Number); R.righe[i].rate[j].scadenza = el.value; });
+  document.querySelectorAll("[data-ri]").forEach(el => { const [i, j] = el.dataset.ri.split("-").map(Number); R.righe[i].rate[j].importo = el.value === "" ? "" : Number(el.value); });
+}
+function bindCardRate(){
+  const R = draft.rate, ij = v => v.split("-").map(Number);
+  if($("#rCerca")) $("#rCerca").onclick = async () => {
+    const l = caseCasa().map((c, i) => Object.assign({}, c, {nomeCond:(document.querySelector(`[data-nc="${i}"]`).value || "").trim().toUpperCase()}));
+    if(!l.some(c => c.nomeCond)){ esito($("#rOut"), false, "Scrivi almeno un nome."); return; }
+    try{ if(archivioPronto()) await scriviCase(l); else saveSettings({case:l}); }catch(e){ saveSettings({case:l}); }
+    draft.rate.stato = "cerco"; renderAcquisisci(); cercaRate();
+  };
+  if(!R || R.stato !== "controllo") return;
+  document.getElementById("cardRate").addEventListener("input", () => { leggiRate(); salvaBozza(); });
+  document.querySelectorAll("[data-rp]").forEach(b => b.onclick = async () => { leggiRate(); const [i, j] = ij(b.dataset.rp), x = R.righe[i].rate[j];
+    const p = await scegliPagamento(x.scadenza && x.scadenza < todayISO() ? x.scadenza : todayISO(), "", R.condominio + " · " + x.numero + "ª rata", x.importo);
+    if(p){ Object.assign(x, {stato:"pag", pagataIl:p.data, pagataCon:p.modo}); salvaBozza(); renderAcquisisci(); } });
+  document.querySelectorAll("[data-rnp]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rnp); Object.assign(R.righe[i].rate[j], {stato:"da", pagataIl:"", pagataCon:""}); renderAcquisisci(); });
+  document.querySelectorAll("[data-rx]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rx); R.righe[i].rate.splice(j, 1); renderAcquisisci(); });
+  document.querySelectorAll("[data-radd]").forEach(b => b.onclick = () => { leggiRate(); const h = R.righe[+b.dataset.radd]; h.rate.push({numero:h.rate.length + 1, scadenza:"", importo:"", stato:"da"}); renderAcquisisci(); });
+  $("#rRiprova").onclick = () => { leggiRate(); draft.rate.stato = "cerco"; renderAcquisisci(); cercaRate(); };
+  $("#rNomi").onclick = () => { draft.rate.stato = "nomi"; renderAcquisisci(); };
+  $("#rSalva").onclick = salvaRate;
+}
+async function salvaRate(){
+  leggiRate();
+  const R = draft.rate, o = $("#rOut"), tutte = [];
+  R.righe.forEach(h => h.rate.forEach(x => tutte.push({h, x})));
+  if(!tutte.length){ esito(o, false, "Non ci sono rate da salvare."); return; }
+  if(tutte.some(({x}) => !x.scadenza || !(Number(x.importo) > 0))){ esito(o, false, "Ogni rata deve avere scadenza e importo (oppure toglila)."); return; }
+  if(!R.condominio){ esito(o, false, "Scrivi il nome del condominio."); return; }
+  const b = $("#rSalva"); b.disabled = true;
+  const me = io(), ora = new Date().toISOString(), totali = {};
+  tutte.forEach(({h}) => totali[h.casa] = (totali[h.casa] || 0) + 1);
+  let fatte = 0, saltate = 0, sulTel = 0;
+  for(const {h, x} of tutte){
+    esito(o, null, `Salvo la rata ${fatte + saltate + 1} di ${tutte.length}…`);
+    const n = Object.assign(newDraft(), {casa:h.casa, ente:R.condominio, tipo:"Condominio", importo:Number(x.importo), scadenza:x.scadenza,
+      numero:`${x.numero}ª rata${h.rate.length ? " di " + h.rate.length : ""}`, periodoDa:R.gestioneDa || "", periodoA:R.gestioneA || "",
+      stato:x.stato === "pag" ? "pag" : "da", pagataIl:x.pagataIl || "", pagataCon:x.pagataCon || "", note:`${x.numero}ª rata${h.nominativo ? " · " + h.nominativo : ""}`, datiAuto:true});
+    if(await doppione(n)){ saltate++; continue; }
+    if(me){ n.aggiuntoDa = me.nome; n.aggiuntoDaId = me.id; n.aggiuntoIl = ora; }
+    const all = await allBollette(); let base = folderFor(n), c = base, k = 2;
+    while(all.some(y => y.cartella.toLowerCase() === c.toLowerCase())) c = `${base} (${k++})`;
+    n.cartella = n.id = c;
+    n.pendingFiles = draft.pendingFiles.map((f, i) => ({name:(f.mime === "application/pdf" ? "prospetto_rate" + (i ? "_" + (i + 1) : "") + ".pdf" : `prospetto_rate_${i + 1}.${extOf(f.name) || "jpg"}`), mime:f.mime, data:f.data}));
+    n.daCaricare = true;
+    try{ if(!archivioPronto()) throw new Error("archivio non raggiungibile"); await writeToNas(n); }catch(e){ sulTel++; }
+    await putBolletta(n); fatte++;
+  }
+  syncReminders();
+  draft = null; lastText = ""; cancellaBozza();
+  toast(`✅ ${fatte} rate salvate` + (saltate ? `, ${saltate} erano già nell'archivio` : "") + (sulTel ? ` (${sulTel} sul telefono, da caricare)` : "") + ".");
+  navStack = []; setView("scadenze");
+}
+
 /* =========================================================
    IMPOSTAZIONI
    ========================================================= */
@@ -2137,6 +2270,7 @@ async function renderImpCasa(nome){
     <label>Nome (è anche il nome della cartella)</label><input id="hcNome" value="${esc(c.nome)}" placeholder="es. Casa mamma" autocomplete="off"${n ? " disabled" : ""}>
     ${n ? `<p class="muted">Il nome non si può cambiare perché la casa ha già ${n} bollette nella sua cartella.</p>` : ""}
     <label>Indirizzo (aiuta a riconoscere le bollette)</label><input id="hcInd" value="${esc(c.indirizzo || "")}" placeholder="es. Via Roma 12, Bari" autocomplete="off">
+    <label>Nome nel condominio (come scritto nei prospetti delle rate, es. TELAROLI SILVIA)</label><input id="hcCond" value="${esc(c.nomeCond || "")}" placeholder="facoltativo" autocapitalize="characters" autocomplete="off">
     <label>Icona</label><div class="seg" id="hcIc">${ICONE_CASA.map(i => `<button data-i="${i}"${i === icona ? ' class="on"' : ""}>${i}</button>`).join("")}</div>
     <div class="btns"><button class="btn primary" id="hcSalva">💾 Salva</button></div>
     ${!nuova && !n ? `<div class="btns"><button class="btn danger" id="hcDel">🗑️ Togli questa casa</button></div>` : ""}
@@ -2148,10 +2282,11 @@ async function renderImpCasa(nome){
     if(!archivioPronto()){ esito(o, false, "Serve l'archivio raggiungibile per salvare la casa."); return; }
     esito(o, null, "Salvo…");
     try{
-      if(nuova) await creaCasa({nome:nomeN, indirizzo:ind, icona}, m => esito(o, null, m));
+      const nomeCond = ($("#hcCond").value || "").trim().toUpperCase();
+      if(nuova) await creaCasa({nome:nomeN, indirizzo:ind, icona, nomeCond}, m => esito(o, null, m));
       else{
         if(nomeN !== c.nome && caseCasa().some(x => x.nome.toLowerCase() === nomeN.toLowerCase())) throw new Error("C'è già una casa con questo nome.");
-        await scriviCase(caseCasa().map(x => x.nome === c.nome ? Object.assign({}, x, {nome:nomeN, indirizzo:ind, icona}) : x));
+        await scriviCase(caseCasa().map(x => x.nome === c.nome ? Object.assign({}, x, {nome:nomeN, indirizzo:ind, icona, nomeCond}) : x));
       }
       toast("Casa salvata."); setView("impCase", undefined, true);
     }catch(e){ esito(o, false, e.message); }
@@ -2354,6 +2489,15 @@ function renderGuida(){
       `<div class="g-row"><span class="g-radio on g-tocca">Da pagare</span><span class="g-radio">Domiciliata</span><span class="g-radio">Già pagata</span></div>`)}
     ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Casa mia / Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>. In alto, sotto <b>Casa</b>, puoi cambiare la casa.")}
     ${nota("Se la stessa bolletta è già nell'archivio, l'app te lo dice prima di salvarla due volte.")}`),
+
+  cap("rate", "🏢", "Le rate del condominio", `
+    <p>L'amministratore manda un <b>prospetto</b> con tutti i condòmini e le rate dell'anno. Da pagare sono solo le <b>4 colonne delle rate</b> (1ª, 2ª, 3ª, 4ª) con le loro date.</p>
+    ${passo(1, "Tocca <b>Acquisisci</b>, scegli la casa e fai la <b>foto del prospetto</b> (o condividi il PDF). L'app capisce da sola che è un prospetto di rate.")}
+    ${passo(2, "La prima volta scrivi <b>come ti chiami nel foglio del condominio</b> per ogni casa (per esempio <i>TELAROLI SILVIA</i>). L'app se lo ricorda. Puoi cambiarlo anche in <b>Impostazioni → Le mie case → Nome nel condominio</b>. Poi tocca <b>Cerca le mie rate</b>.")}
+    ${passo(3, "Controlla per ogni casa le 4 rate: <b>data</b> e <b>importo</b>. Se una cella del foglio era colorata, accanto c'è scritto <b>🖍️ evidenziata nel foglio</b>.")}
+    ${passo(4, "Per le rate già pagate tocca <b>✅ Già pagata</b> e scegli come (contanti, home banking…). Le altre restano «da pagare».")}
+    ${passo(5, "Tocca <b>Salva</b>: ogni rata diventa una scadenza con il suo avviso, nella cartella del condominio di quella casa, con la foto del prospetto.")}
+    ${nota("Se rifai la foto dello stesso prospetto, le rate già salvate non vengono doppiate.")}`),
 
   cap("archivio", "🗂️", "Ritrovare una bolletta", `
     ${passo(1, "Tocca <b>Archivio</b>: c'è un riquadro per ogni ente, con quante bollette ci sono e quanto hai speso quest'anno.",
