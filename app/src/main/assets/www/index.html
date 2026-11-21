@@ -594,7 +594,8 @@ function parseBolletta(text){
 
   // ---- periodo ----
   const p1 = T.match(new RegExp("(?:periodo|fatturazione|consumi|competenza|riferimento)[^\\n]{0,60}?(?:dal|da)\\s+(" + DATA_RX + ")\\s*(?:al|a|-|–)\\s*(" + DATA_RX + ")", "i"))
-    || T.match(new RegExp("\\bdal\\s+(" + DATA_RX + ")\\s+al\\s+(" + DATA_RX + ")", "i"));
+    || T.match(new RegExp("\\bdal\\s+(" + DATA_RX + ")\\s+al\\s+(" + DATA_RX + ")", "i"))
+    || T.match(new RegExp("(?:periodo|fatturazione|competenza|riferimento)[^\\n]{0,40}?(" + DATA_RX + ")\\s*(?:-|–|al|a|\\/)\\s*(" + DATA_RX + ")", "i"));
   if(p1){ const ds = tutteDate(p1[0]); if(ds.length >= 2){ r.periodoDa = ds[0]; r.periodoA = ds[1]; } }
   if(!r.periodoDa){
     const pm = T.match(/periodo[^\n]{0,30}?\b(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s*(\d{4})?\s*[-–\/]\s*(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})/i)
@@ -648,6 +649,19 @@ function parseBolletta(text){
   if(/conguaglio/i.test(T)) r.note = "Bolletta di conguaglio";
   if(/\bacconto\b/i.test(T) && !r.note) r.note = "";
 
+  // scadenza: tra le date vicine alla parola "scadenza", la prima che non è del periodo né dell'emissione
+  {
+    const KS = /scadenza(?:\s+(?:di\s+)?pagamento|\s+fattura|\s+bolletta)?|da\s+pagare\s+entro(?:\s+il)?|pagare\s+entro(?:\s+il)?|entro\s+il|scade\s+il|data\s+(?:di\s+)?scadenza|termine\s+di\s+pagamento/i;
+    const escluse = new Set([r.periodoDa, r.periodoA, r.emessa].filter(Boolean));
+    const cand = [];
+    righe.forEach((l, i) => {
+      const m = l.match(KS); if(!m) return;
+      const dopoK = tutteDate(l.slice(m.index + m[0].length)), primaK = tutteDate(l.slice(0, m.index));
+      [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK].forEach((ds, peso) => ds.forEach(d => cand.push({d, peso})));
+    });
+    const buona = cand.filter(c => !escluse.has(c.d) && (!r.emessa || c.d >= r.emessa)).sort((a, b) => a.peso - b.peso)[0];
+    if(buona) r.scadenza = buona.d; else if(r.scadenza && escluse.has(r.scadenza)) r.scadenza = "";
+  }
   // date nel futuro lontano o prima del 2000: scartate
   for(const k of ["scadenza","emessa","periodoDa","periodoA"]) if(r[k] && (r[k] < "2000-01-01" || daysLeft(r[k]) > 400)) r[k] = "";
   if(r.periodoDa && r.periodoA && r.periodoDa > r.periodoA){ const x = r.periodoDa; r.periodoDa = r.periodoA; r.periodoA = x; }
@@ -1139,8 +1153,13 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.5";
+const VERSIONE = "v1.6";
 const CRONOLOGIA = [
+  {v:"v1.6", d:"21/11/2026", n:[
+    "«Già pagata» apre subito la finestra con il giorno e il modo (Contanti, Bancomat, Home banking…), nello stile dell'app",
+    "Lettura: la scadenza non viene più confusa con l'inizio del periodo; letto anche il periodo scritto «01/09/2026 - 30/09/2026»",
+    "Nel «Testo letto dalla bolletta» c'è il tasto «Copia il testo», da mandare in chat per migliorare la lettura"
+  ]},
   {v:"v1.5", d:"21/11/2026", n:[
     "Bolletta nella casa sbagliata: nella scheda c'è «Sposta in un'altra casa» (sposta anche la cartella sul NAS)",
     "Home più pulita: le case si scelgono dentro Acquisisci, Archivio, Scadenze e Grafici"
@@ -1261,7 +1280,7 @@ async function renderAcquisisci(edit){
         <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button></div>
         <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>`}
       <div class="status" id="leggiStatus"></div>
-      <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><pre class="ocr">${esc(lastText)}</pre></details>
+      <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
     </div>
     <div class="card${vuota ? " hidden" : ""}" id="formCard">
       <h2>${isEdit ? "Dati" : "2. Controlla i dati"}</h2>
@@ -1277,10 +1296,7 @@ async function renderAcquisisci(edit){
       </div>
       <label>Pagamento</label>
       <div class="seg" id="segStato"><button data-s="da">Da pagare</button><button data-s="dom">Domiciliata</button><button data-s="pag">Già pagata</button></div>
-      <div class="row hidden" id="rowPagata">
-        <div><label>Pagata il</label><input id="fPagataIl" type="date"></div>
-        <div><label>Come</label><select id="fPagataCon"><option value=""></option>${opt(MODI_PAGAMENTO, draft.pagataCon)}</select></div>
-      </div>
+      <div class="okline hidden" id="rowPagata" style="display:flex;align-items:center;gap:10px"><span style="flex:1" id="pagTxt"></span><button class="btn small" id="bPagCambia">Cambia</button></div>
       <label>Periodo</label>
       <div class="row"><div><input id="fDa" type="date" aria-label="dal"></div><div><input id="fA" type="date" aria-label="al"></div></div>
       <div class="row">
@@ -1310,12 +1326,27 @@ async function renderAcquisisci(edit){
     </div>`;
   bindPending();
   allBollette().then(l => { const dl = $("#dlEnti"); if(dl) dl.innerHTML = [...new Set(l.map(b => b.ente).filter(Boolean).concat(ENTI_NOTI.map(e => e[0])))].map(e => `<option value="${esc(e)}">`).join(""); });
-  const F = {fEnte:"ente", fImporto:"importo", fScadenza:"scadenza", fDa:"periodoDa", fA:"periodoA", fNumero:"numero", fEmessa:"emessa", fCliente:"codiceCliente", fPod:"pod", fInd:"indirizzo", fConsumo:"consumo", fNote:"note", fPagataIl:"pagataIl"};
+  const F = {fEnte:"ente", fImporto:"importo", fScadenza:"scadenza", fDa:"periodoDa", fA:"periodoA", fNumero:"numero", fEmessa:"emessa", fCliente:"codiceCliente", fPod:"pod", fInd:"indirizzo", fConsumo:"consumo", fNote:"note"};
   for(const [id, k] of Object.entries(F)){ const el = $("#" + id); el.value = draft[k] ?? ""; }
   $("#fTipo").value = draft.tipo || "";
-  const setStato = s => { draft.stato = s; document.querySelectorAll("#segStato button").forEach(b => b.classList.toggle("on", b.dataset.s === s)); $("#rowPagata").classList.toggle("hidden", s !== "pag"); if(s === "pag" && !$("#fPagataIl").value){ $("#fPagataIl").value = todayISO(); } };
+  const setStato = s => {
+    draft.stato = s; document.querySelectorAll("#segStato button").forEach(b => b.classList.toggle("on", b.dataset.s === s));
+    $("#rowPagata").classList.toggle("hidden", s !== "pag");
+    $("#pagTxt").innerHTML = "✅ Pagata il <b>" + fmtDate(draft.pagataIl || todayISO()) + "</b>" + (draft.pagataCon ? " · <b>" + esc(draft.pagataCon) + "</b>" : "");
+  };
+  // "Già pagata": si apre subito la finestra con il giorno e il modo di pagamento
+  const chiediPagata = async () => {
+    const r = await scegliPagamento(draft.pagataIl, draft.pagataCon, draft.ente, draft.importo);
+    if(!r) return false;
+    draft.pagataIl = r.data; draft.pagataCon = r.modo; draft._statoScelto = true; setStato("pag"); salvaBozza(); return true;
+  };
+  $("#bPagCambia").onclick = () => chiediPagata();
   setStato(draft.stato || "da");
-  document.querySelectorAll("#segStato button").forEach(b => b.onclick = () => { readForm(); draft._statoScelto = true; setStato(b.dataset.s); readForm(); updPreview(); salvaBozza(); });
+  document.querySelectorAll("#segStato button").forEach(b => b.onclick = async () => {
+    readForm();
+    if(b.dataset.s === "pag"){ await chiediPagata(); return; }
+    draft._statoScelto = true; draft.pagataIl = ""; draft.pagataCon = ""; setStato(b.dataset.s); updPreview(); salvaBozza();
+  });
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
   bindCardCasa();
@@ -1323,6 +1354,7 @@ async function renderAcquisisci(edit){
   $("#bCam").onclick = () => $("#camInput").click();
   $("#bFile").onclick = () => $("#fileInput").click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
+  if($("#bCopiaTesto")) $("#bCopiaTesto").onclick = async () => { try{ await navigator.clipboard.writeText(lastText); toast("Testo copiato: incollalo nella chat."); }catch(e){ toast("Tieni premuto sul testo per copiarlo.", true); } };
   $("#view").addEventListener("input", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
   $("#view").addEventListener("change", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
   salvaBozza();
@@ -1390,7 +1422,8 @@ function readForm(){
   const v = id => $("#" + id).value.trim(), n = id => v(id) === "" ? "" : Number(v(id));
   Object.assign(draft, {ente:v("fEnte"), tipo:$("#fTipo").value, importo:n("fImporto"), scadenza:$("#fScadenza").value, periodoDa:$("#fDa").value, periodoA:$("#fA").value,
     numero:v("fNumero"), emessa:$("#fEmessa").value, codiceCliente:v("fCliente"), pod:v("fPod"), indirizzo:v("fInd"), consumo:n("fConsumo"), unita:$("#fUnita").value,
-    lettura:$("#fLettura").value, note:$("#fNote").value.trim(), pagataIl: draft.stato === "pag" ? $("#fPagataIl").value : "", pagataCon: draft.stato === "pag" ? $("#fPagataCon").value : ""});
+    lettura:$("#fLettura").value, note:$("#fNote").value.trim()});
+  if(draft.stato !== "pag"){ draft.pagataIl = ""; draft.pagataCon = ""; } else if(!draft.pagataIl) draft.pagataIl = todayISO();
 }
 async function updPreview(){
   const el = $("#destPreview"); if(!el) return;
@@ -1748,26 +1781,34 @@ function dialogoSposta(a){
     }catch(e){ esito(m.querySelector("#spMsg"), false, e.message); m.querySelectorAll("button").forEach(x => x.disabled = false); }
   });
 }
-function dialogoPagata(a){
+function scegliPagamento(data, modo, ente, importo){
   return new Promise(res => {
     const m = document.createElement("div"); m.className = "modal";
-    const ultimo = MODI_PAGAMENTO.includes(settings().ultimoModo) ? settings().ultimoModo : "Contanti";
-    m.innerHTML = `<div class="box"><h2>✅ Segna come pagata</h2><p class="muted" style="margin:2px 0 6px">${esc(a.ente || "")} · ${esc(euro(a.importo))}</p>
-      <label>Pagata il</label><input type="date" id="pgData" value="${todayISO()}">
-      <label>Come</label><div class="seg" id="pgModo">${MODI_PAGAMENTO.map(x => `<button data-m="${esc(x)}"${x === ultimo ? ' class="on"' : ""}>${esc(x)}</button>`).join("")}</div>
+    const ultimo = MODI_PAGAMENTO.includes(modo) ? modo : MODI_PAGAMENTO.includes(settings().ultimoModo) ? settings().ultimoModo : "";
+    m.innerHTML = `<div class="box"><h2>✅ Pagata</h2>${ente || importo ? `<p class="muted" style="margin:2px 0 6px">${esc(ente || "")}${importo ? " · " + esc(euro(importo)) : ""}</p>` : ""}
+      <label>Pagata il</label><input type="date" id="pgData" value="${esc(data || todayISO())}">
+      <label style="margin-top:12px">Come l'hai pagata?</label><div class="seg" id="pgModo">${MODI_PAGAMENTO.map(x => `<button data-m="${esc(x)}"${x === ultimo ? ' class="on"' : ""}>${esc(x)}</button>`).join("")}</div>
       <div class="btns"><button class="btn" id="pgNo">Annulla</button><button class="btn primary" id="pgOk" style="background:var(--ok);border-color:var(--ok)">✅ Conferma</button></div></div>`;
     document.body.appendChild(m);
     m.querySelectorAll("#pgModo button").forEach(b => b.onclick = () => { m.querySelectorAll("#pgModo button").forEach(x => x.classList.remove("on")); b.classList.add("on"); });
-    m.onclick = e => { if(e.target === m){ m.remove(); res(false); } };
-    m.querySelector("#pgNo").onclick = () => { m.remove(); res(false); };
-    m.querySelector("#pgOk").onclick = async () => {
-      const modo = (m.querySelector("#pgModo .on") || {}).dataset?.m || "";
-      m.remove(); saveSettings({ultimoModo:modo});
-      await cambiaStato(a, {stato:"pag", pagataIl:m.querySelector("#pgData").value || todayISO(), pagataCon:modo});
-      toast("✅ Segnata come pagata: niente più avvisi per questa bolletta.");
-      setView(current, currentArg, true); res(true);
+    const chiudi = v => { m.remove(); res(v); };
+    m.onclick = e => { if(e.target === m) chiudi(null); };
+    m.querySelector("#pgNo").onclick = () => chiudi(null);
+    m.querySelector("#pgOk").onclick = () => {
+      const sel = m.querySelector("#pgModo .on");
+      if(!sel){ toast("Tocca come l'hai pagata (es. Contanti).", true); return; }
+      saveSettings({ultimoModo:sel.dataset.m});
+      chiudi({data:m.querySelector("#pgData").value || todayISO(), modo:sel.dataset.m});
     };
   });
+}
+async function dialogoPagata(a){
+  const r = await scegliPagamento("", "", a.ente, a.importo);
+  if(!r) return false;
+  await cambiaStato(a, {stato:"pag", pagataIl:r.data, pagataCon:r.modo});
+  toast("✅ Segnata come pagata: niente più avvisi per questa bolletta.");
+  setView(current, currentArg, true);
+  return true;
 }
 
 /* =========================================================
