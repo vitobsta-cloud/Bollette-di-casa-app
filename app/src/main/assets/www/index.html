@@ -1190,8 +1190,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.13";
+const VERSIONE = "v1.14";
 const CRONOLOGIA = [
+  {v:"v1.14", d:"21/11/2026", n:["In Acquisisci c'è «🖼️ Scegli una o più foto»: prendi dalla galleria le foto già fatte, anche più di una insieme."]},
   {v:"v1.13", d:"21/11/2026", n:[
     "Rate del condominio: dalla foto del prospetto l'app trova le righe delle tue case e crea una scadenza per ogni rata (con il suo avviso)",
     "Le mie case: nuovo campo «Nome nel condominio» (come è scritto nei prospetti, es. TELAROLI SILVIA)",
@@ -1340,9 +1341,10 @@ async function renderAcquisisci(edit){
       ${vuota ? `<p class="muted" style="margin:0">Da dove prendi la bolletta?</p>
         <button class="bigpick" id="bFile"><span class="ic" style="background:#ccfbf1">📄</span><span><span class="t1">Scegli il PDF <span class="consig">consigliato</span></span><br><span class="t2">La bolletta arrivata per email, salvata nel telefono</span></span></button>
         <button class="bigpick" id="bCam"><span class="ic" style="background:#edf3e4">📷</span><span><span class="t1">Scatta una foto</span><br><span class="t2">Bolletta di carta, anche in più foto</span></span></button>
+        <button class="bigpick" id="bGal"><span class="ic" style="background:#ede9fe">🖼️</span><span><span class="t1">Scegli una o più foto</span><br><span class="t2">Foto già fatte, dalla galleria del telefono</span></span></button>
         <p class="muted" style="margin-top:12px">📨 <b>Dall'email è ancora più facile:</b> apri l'allegato PDF, tocca <b>Condividi</b> e scegli <b>Bollette</b>. La bolletta arriva qui da sola.</p>`
       : `<div class="thumbs" id="thumbs"></div>
-        <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button></div>
+        <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button><button class="btn" id="bGal">🖼️ Dalla galleria</button></div>
         <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>`}
       <div class="status" id="leggiStatus"></div>
       <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
@@ -1421,6 +1423,7 @@ async function renderAcquisisci(edit){
   document.querySelectorAll("#segCasa button").forEach(b => b.onclick = () => { readForm(); draft.casa = b.dataset.c; document.querySelectorAll("#segCasa button").forEach(x => x.classList.toggle("on", x === b)); $("#casaNota").innerHTML = ""; updPreview(); salvaBozza(); });
   $("#bCam").onclick = () => $("#camInput").click();
   $("#bFile").onclick = () => $("#fileInput").click();
+  if($("#bGal")) $("#bGal").onclick = () => galInput().click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
   if($("#bCopiaTesto")) $("#bCopiaTesto").onclick = async () => { try{ await navigator.clipboard.writeText(lastText); toast("Testo copiato: incollalo nella chat."); }catch(e){ toast("Tieni premuto sul testo per copiarlo.", true); } };
   $("#view").addEventListener("input", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
@@ -1538,6 +1541,16 @@ async function addFiles(list, daCamera){
 }
 $("#camInput").onchange = e => { addFiles([...e.target.files], true); e.target.value = ""; };
 $("#fileInput").onchange = e => { addFiles([...e.target.files]); e.target.value = ""; };
+/* foto già fatte, dalla galleria: una o più insieme */
+function galInput(){
+  let g = $("#galInput");
+  if(!g){
+    g = document.createElement("input"); g.type = "file"; g.id = "galInput"; g.accept = "image/*"; g.multiple = true; g.className = "hidden";
+    g.onchange = e => { const l = [...e.target.files].filter(f => (f.type || "").startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.name)); if(l.length < e.target.files.length) toast("Ho preso solo le foto."); if(l.length) addFiles(l); e.target.value = ""; };
+    document.body.appendChild(g);
+  }
+  return g;
+}
 
 function evidenziaDubbi(){
   const ev = (id, k, fmt) => { const el = $("#" + id); if(!el || dubbiLettura[k] === undefined) return; el.classList.add("giallo"); const h = document.createElement("div"); h.className = "sotto"; h.textContent = "⚠️ Sul telefono avevo letto " + fmt(dubbiLettura[k]) + ": controlla sulla bolletta"; el.after(h);
@@ -2474,8 +2487,8 @@ function renderGuida(){
 
   cap("acquisisci", "📥", "Archiviare una bolletta con Acquisisci", `
     ${passo(1, "Nella Home tocca <b>Acquisisci</b>, poi tocca la <b>casa</b> della bolletta.", schermo("Bollette di casa", tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta", true), true))}
-    ${passo(2, "Se la bolletta è un <b>PDF salvato nel telefono</b> (per esempio nella cartella Download) tocca <b>📄 Scegli il PDF</b>. Se è di <b>carta</b> tocca <b>📷 Scatta una foto</b>.",
-      schermo("Acquisisci", `<div class="g-card"><b>1. La bolletta</b><div class="g-tile g-tocca"><span class="g-ic" style="background:#ccfbf1">📄</span><span><b>Scegli il PDF</b><br><small>La bolletta arrivata per email</small></span></div><div class="g-tile"><span class="g-ic" style="background:#edf3e4">📷</span><span><b>Scatta una foto</b><br><small>Bolletta di carta</small></span></div></div>`))}
+    ${passo(2, "Se la bolletta è un <b>PDF salvato nel telefono</b> (per esempio nella cartella Download) tocca <b>📄 Scegli il PDF</b>. Se è di <b>carta</b> tocca <b>📷 Scatta una foto</b>. Se le foto le hai <b>già fatte</b>, tocca <b>🖼️ Scegli una o più foto</b>: nella finestra che si apre tieni il dito su una foto e poi tocca le altre per sceglierne più di una.",
+      schermo("Acquisisci", `<div class="g-card"><b>1. La bolletta</b><div class="g-tile g-tocca"><span class="g-ic" style="background:#ccfbf1">📄</span><span><b>Scegli il PDF</b><br><small>La bolletta arrivata per email</small></span></div><div class="g-tile"><span class="g-ic" style="background:#edf3e4">📷</span><span><b>Scatta una foto</b><br><small>Bolletta di carta</small></span></div><div class="g-tile"><span class="g-ic" style="background:#ede9fe">🖼️</span><span><b>Scegli una o più foto</b><br><small>Dalla galleria</small></span></div></div>`))}
     ${passo(3, "Con la foto, l'app chiede <b>«C'è un'altra pagina?»</b>. Di solito basta la <b>prima pagina</b>, dove ci sono importo e scadenza: tocca <b>✅ No, basta così: leggi</b>.")}
     ${passo(4, "L'app legge la bolletta in pochi secondi. Controlla i dati e tocca <b>💾 Salva</b>. Alla domanda <b>«Vuoi stampare la scheda?»</b> rispondi <b>🖨️ Stampa</b> oppure <b>Annulla</b>.",
       schermo("Acquisisci", `<div class="g-card"><div class="g-row">${btn("Svuota")}${btn("🖨️ Stampa")}${btn("💾 Salva", true, true)}</div></div>`))}
