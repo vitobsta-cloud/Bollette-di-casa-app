@@ -1207,8 +1207,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.18";
+const VERSIONE = "v1.19";
 const CRONOLOGIA = [
+  {v:"v1.19", d:"21/11/2026", n:["Rate del condominio: valgono per la casa che scegli in Acquisisci (es. Casa mamma). Tocchi la sua riga nella tabellina, anche senza aver scritto il nome.", "Se come «Nome nel condominio» è scritto il nome del condominio invece della persona, l'app non lo usa e lo segnala."]},
   {v:"v1.18", d:"21/11/2026", n:["Bollini più chiari: c'è sempre la data di scadenza e sotto quanto manca (oggi, domani, tra 10 giorni, scaduta da…), con colori: rosso scaduta o oggi, arancio entro 7 giorni, azzurro più avanti, verde pagata.", "Per le rate del condominio sotto il nome si vede «4ª rata di 4»."]},
   {v:"v1.17", d:"21/11/2026", n:["Rate del condominio: in fondo c'è «🗑️ Ricomincia da capo» per togliere le foto e ripartire."]},
   {v:"v1.16", d:"21/11/2026", n:["Rate del condominio più chiare: le righe del foglio sono in una tabellina con le date in alto, tocchi quella con i tuoi importi.", "Ogni rata ha i due pulsanti «Da pagare» / «Già pagata», come nel modulo: si vede subito com'è.", "L'importo si scrive con la virgola (es. 159,67).", "«Rileggi» funziona anche dopo un aggiornamento dell'app."]},
@@ -2019,22 +2020,25 @@ async function renderGrafici(){
 /* =========================================================
    RATE DEL CONDOMINIO (prospetto con una riga per condòmino e le colonne delle rate)
    ========================================================= */
-const nomiCondominio = () => caseCasa().filter(c => c.nomeCond);
+// un nome valido è quello di una persona, non del condominio
+const nomeValido = n => !!n && n.trim().length > 2 && !/^\s*(condominio|residence|supercondominio)\b/i.test(n);
+const nomiCondominio = () => caseCasa().filter(c => nomeValido(c.nomeCond) && (!draft || !draft.casa || c.nome === draft.casa));
 async function avviaRate(docs, msg){
-  draft.rate = {stato:"nomi", righe:[], condominio:"", errore:""};
-  if(nomiCondominio().length) await cercaRate(docs, msg); else renderAcquisisci();
+  draft.rate = {stato:"cerco", righe:[], condominio:"", errore:""};
+  await cercaRate(docs, msg);
 }
 let geminiAttesa = 25000;
 async function cercaRate(docs, msg){
   docs = docs || draft.pendingFiles;
   const nomi = nomiCondominio(), tel = rateDaTesto(lastText || draft._testo);
   draft.rate = Object.assign(draft.rate || {}, {stato:"cerco", errore:""});
-  if(!settings().geminiKey){ draft.rate = mano(nomi, tel, tel.righe.length ? "" : "Per leggere la tabella serve il controllo online di Google (Impostazioni → Lettura bollette). Intanto puoi scrivere le rate a mano."); salvaBozza(); renderAcquisisci(); return; }
+  if(!settings().geminiKey || !nomi.length){ draft.rate = mano(caseCasa(), tel, tel.righe.length ? "" : "Per leggere la tabella serve il controllo online di Google (Impostazioni → Lettura bollette). Intanto puoi scrivere le rate a mano."); salvaBozza(); renderAcquisisci(); return; }
   msg && msg("Cerco nella tabella le righe di " + nomi.map(c => c.nomeCond).join(" e ") + "…");
   try{
     const d = await geminiRate(docs, nomi.map(c => c.nomeCond));
     const uguali = (a, b) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 0.015);
-    const righe = nomi.map(c => {
+    const righe = caseCasa().map(c => {
+      if(!nomeValido(c.nomeCond)) return rigaVuota(c, tel);
       const k = x => String(x || "").toLowerCase().replace(/[^a-z]/g, "");
       const g = (d.righe || []).find(x => k(x.cercato) === k(c.nomeCond)) || (d.righe || []).find(x => k(x.nominativo) && (k(x.nominativo).includes(k(c.nomeCond)) || k(c.nomeCond).includes(k(x.nominativo))));
       const rate = (g && Array.isArray(g.rate) ? g.rate : []).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.scadenza || "") && Number(x.importo) > 0)
@@ -2045,10 +2049,11 @@ async function cercaRate(docs, msg){
     });
     draft.rate = {stato:"controllo", condominio:String(d.condominio || tel.condominio || "Condominio").trim(), gestioneDa:d.gestioneDa || tel.gestioneDa || "", gestioneA:d.gestioneA || tel.gestioneA || "", righe, candidati:tel.righe, date:tel.date, errore:""};
   }catch(e){
-    draft.rate = mano(nomi, tel, "La lettura online non è riuscita (" + e.message + ")." + (tel.righe.length ? " Il telefono ha letto la tabella: tocca la tua riga qui sotto." : " Puoi riprovare oppure scrivere le rate a mano."));
+    draft.rate = mano(caseCasa(), tel, "La lettura online non è riuscita (" + e.message + ")." + (tel.righe.length ? " Il telefono ha letto la tabella: tocca la tua riga qui sotto." : " Puoi riprovare oppure scrivere le rate a mano."));
   }
-  salvaBozza(); renderAcquisisci();
+  ordinaRate(draft.rate); salvaBozza(); renderAcquisisci();
 }
+function ordinaRate(R){ if(R && R.righe && draft && draft.casa) R.righe.sort((a, b) => (b.casa === draft.casa) - (a.casa === draft.casa)); return R; }
 function rigaVuota(c, tel){ return {casa:c.nome, nominativo:"", scegli:tel.righe.length > 0, rate:[1, 2, 3, 4].map((n, i) => ({numero:n, scadenza:tel.date[i] || "", importo:"", stato:"da"}))}; }
 function mano(nomi, tel, errore){
   return {stato:"controllo", condominio:tel.condominio || "Condominio", gestioneDa:tel.gestioneDa || "", gestioneA:tel.gestioneA || "", righe:nomi.map(c => rigaVuota(c, tel)), candidati:tel.righe, date:tel.date, errore};
@@ -2104,30 +2109,31 @@ Rispondi SOLO con JSON: {"condominio":"nome del condominio (es. Condominio Resid
 }
 function cardRate(){
   const R = draft.rate, nomi = nomiCondominio();
-  if(R.stato === "nomi" || !nomi.length) return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate del condominio</h2>
-    <p class="muted">Per trovare le tue righe nella tabella scrivi, per ogni casa che è in questo condominio, il <b>nome come è scritto nel prospetto</b> (es. TELAROLI SILVIA). Lascia vuoto per le case che non c'entrano. Lo scrivi una volta sola.</p>
+  if(R.stato === "nomi") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate del condominio</h2>
+    <p class="muted">Per trovare le tue righe nella tabella scrivi, per ogni casa che è in questo condominio, il <b>cognome e nome della persona</b> come è scritto nella colonna «Nominativo» (es. TELAROLI SILVIA). <b>Non</b> il nome del condominio. Lascia vuoto per le case che non c'entrano. Serve solo alla lettura online: se lo lasci vuoto, scegli tu la riga.</p>
     ${caseCasa().map((c, i) => `<label>${esc((c.icona || "🏠") + " " + c.nome)}</label><input data-nc="${i}" value="${esc(c.nomeCond || "")}" placeholder="nome nel condominio" autocapitalize="characters" autocomplete="off">`).join("")}
     <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div>
     <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
   if(R.stato === "cerco") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate</h2><div class="status"><span class="spinner"></span>Cerco le tue righe nella tabella…</div></div>`;
-  const riga = (h, i) => `<div style="margin-top:12px"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
+  const riga = (h, i) => h.escluso ? `<div style="margin-top:12px;opacity:.7"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">· non è in questo condominio</span> <button class="btn small" data-rsi="${i}">Sì, c'è</button></div>` : `<div style="margin-top:14px;padding-top:10px;border-top:1px solid #eee"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
       ${h.dubbio ? `<div class="g-nota att" style="margin-top:6px">⚠️ Questi importi non coincidono con quelli letti dal telefono: controllali bene sul foglio.</div>` : ""}
-      ${h.scegli && !h.nominativo ? `<div class="g-nota" style="margin:8px 0">👉 Guarda sul foglio la riga di <b>${esc(casaInfo(h.casa).nomeCond || h.casa)}</b> e <b>tocca qui sotto la riga con gli stessi importi</b>.</div>
+      ${h.scegli && !h.nominativo ? `<div class="g-nota" style="margin:8px 0">👉 Guarda sul foglio la riga ${nomeValido(casaInfo(h.casa).nomeCond) ? `di <b>${esc(casaInfo(h.casa).nomeCond)}</b>` : `di <b>${esc(h.casa)}</b> (il nome di chi abita lì)`} e <b>tocca qui sotto la riga con gli stessi importi</b>.</div>
         <div class="rtab"><div class="rth">${[0, 1, 2, 3].map(n => `<span>${n + 1}ª rata${(R.date || [])[n] ? "<br>" + esc(fmtDate(R.date[n]).slice(0, 5)) : ""}</span>`).join("")}</div>
         ${(R.candidati || []).map((r, k) => `<button class="rtr" data-rc="${i}-${k}">${r.map(v => `<span>${esc(euro(v).replace(" €", ""))}</span>`).join("")}</button>`).join("")}</div>
-        <button class="btn small" data-rman="${i}" style="margin-top:8px">✏️ Non la trovo: scrivo le rate a mano</button>` : ""}
+        <div class="btns" style="margin-top:8px"><button class="btn small" data-rman="${i}">✏️ Scrivo le rate a mano</button>${draft.casa ? "" : `<button class="btn small" data-rno="${i}">🚫 Questa casa non c'entra</button>`}</div>` : ""}
       ${h.scegli && !h.nominativo ? "" : h.rate.map((x, j) => `<div class="entry" style="flex-wrap:wrap;margin-top:6px"><div class="txt" style="flex:1 1 100%"><div class="row" style="align-items:flex-end">
         <div style="flex:0 0 56px"><label>Rata</label><b style="font-size:16px">${x.numero}ª</b></div>
         <div><label>Scadenza</label><input type="date" data-rs="${i}-${j}" value="${esc(x.scadenza)}"></div>
         <div><label>Importo €</label><input type="text" inputmode="decimal" data-ri="${i}-${j}" value="${esc(x.importo === "" || x.importo == null ? "" : Number(x.importo).toFixed(2).replace(".", ","))}" placeholder="es. 159,67"></div></div>
         <div style="margin-top:8px"><div class="seg"><button data-rnp="${i}-${j}"${x.stato === "pag" ? "" : ' class="on"'}>Da pagare</button><button data-rp="${i}-${j}"${x.stato === "pag" ? ' class="on"' : ""}>Già pagata</button></div>
         ${x.stato === "pag" ? `<div class="muted" style="margin-top:6px">✅ Pagata il ${fmtDate(x.pagataIl)}${x.pagataCon ? " · " + esc(x.pagataCon) : ""}</div>` : ""}${x.evidenziata ? `<div style="margin-top:6px"><span class="pill warn">🖍️ evidenziata nel foglio</span></div>` : ""} <div style="margin-top:8px"><button class="btn small danger" data-rx="${i}-${j}">Togli questa rata</button></div></div></div></div>`).join("")}
-      ${h.scegli && !h.nominativo ? "" : `<button class="btn small" data-radd="${i}" style="margin-top:6px">＋ Aggiungi una rata</button>`}</div>`;
-  const n = R.righe.filter(h => !(h.scegli && !h.nominativo)).reduce((t, h) => t + h.rate.length, 0);
+      ${h.scegli && !h.nominativo ? "" : `<div class="btns" style="margin-top:6px"><button class="btn small" data-radd="${i}">＋ Aggiungi una rata</button>${draft.casa ? "" : `<button class="btn small" data-rno="${i}">🚫 Questa casa non c'entra</button>`}</div>`}</div>`;
+  const n = R.righe.filter(h => (!draft.casa || h.casa === draft.casa) && !h.escluso && !(h.scegli && !h.nominativo)).reduce((t, h) => t + h.rate.length, 0);
   return `<div class="card" id="cardRate"><h2>🏢 Rate del condominio</h2>
     ${R.errore ? `<div class="g-nota att">⚠️ ${esc(R.errore)}</div>` : `<p class="muted">Controlla date e importi con il prospetto. Ogni rata diventa una scadenza con il suo avviso.</p>`}
     <label>Condominio</label><input id="rCond" value="${esc(R.condominio)}">
-    ${R.righe.map(riga).join("")}
+    ${draft.casa ? "" : `<div class="g-nota" style="margin-top:10px">👆 Prima tocca in alto <b>per quale casa</b> sono queste rate.</div>`}
+    ${R.righe.map((h, i) => !draft.casa || h.casa === draft.casa ? riga(h, i) : "").join("")}
     <div class="dove">📁 Ogni rata va in: <b>Casa / ${esc(safeName(R.condominio || "Condominio"))} - Condominio / data scad. importo</b>, con la foto del prospetto.</div>
     <div class="btns"><button class="btn" id="rRiprova">🔄 Rileggi</button><button class="btn" id="rNomi">✏️ Nomi</button><button class="btn primary" id="rSalva">💾 Salva ${n} rate</button></div>
     <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
@@ -2143,7 +2149,7 @@ function bindCardRate(){
   if($("#rDaCapo")) $("#rDaCapo").onclick = async () => { if(await conferma("Togliere le foto e ricominciare da capo? Non viene salvato niente.", "Ricomincia")){ draft = newDraft(); lastText = ""; dubbiLettura = {}; cancellaBozza(); renderAcquisisci(); } };
   if($("#rCerca")) $("#rCerca").onclick = async () => {
     const l = caseCasa().map((c, i) => Object.assign({}, c, {nomeCond:(document.querySelector(`[data-nc="${i}"]`).value || "").trim().toUpperCase()}));
-    if(!l.some(c => c.nomeCond)){ esito($("#rOut"), false, "Scrivi almeno un nome."); return; }
+    if(l.some(c => c.nomeCond && !nomeValido(c.nomeCond))){ esito($("#rOut"), false, "Scrivi il nome della persona (es. TELAROLI SILVIA), non quello del condominio."); return; }
     try{ if(archivioPronto()) await scriviCase(l); else saveSettings({case:l}); }catch(e){ saveSettings({case:l}); }
     draft.rate.stato = "cerco"; renderAcquisisci(); cercaRate();
   };
@@ -2153,11 +2159,13 @@ function bindCardRate(){
     const p = await scegliPagamento(x.scadenza && x.scadenza < todayISO() ? x.scadenza : todayISO(), "", R.condominio + " · " + x.numero + "ª rata", x.importo);
     if(p){ Object.assign(x, {stato:"pag", pagataIl:p.data, pagataCon:p.modo}); salvaBozza(); renderAcquisisci(); } });
   document.querySelectorAll("[data-rnp]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rnp); Object.assign(R.righe[i].rate[j], {stato:"da", pagataIl:"", pagataCon:""}); renderAcquisisci(); });
+  document.querySelectorAll("[data-rno]").forEach(b => b.onclick = () => { leggiRate(); R.righe[+b.dataset.rno].escluso = true; salvaBozza(); renderAcquisisci(); });
+  document.querySelectorAll("[data-rsi]").forEach(b => b.onclick = () => { R.righe[+b.dataset.rsi].escluso = false; salvaBozza(); renderAcquisisci(); });
   document.querySelectorAll("[data-rman]").forEach(b => b.onclick = () => { leggiRate(); R.righe[+b.dataset.rman].scegli = false; salvaBozza(); renderAcquisisci(); });
   document.querySelectorAll("[data-rc]").forEach(b => b.onclick = () => {
     leggiRate(); const [i, k] = ij(b.dataset.rc), h = R.righe[i], r = R.candidati[k];
     h.rate = r.map((v, n) => ({numero:n + 1, scadenza:(R.date || [])[n] || (h.rate[n] && h.rate[n].scadenza) || "", importo:v, stato:"da", pagataIl:"", pagataCon:""}));
-    h.nominativo = casaInfo(h.casa).nomeCond || "scelta da te"; h.scegli = false; salvaBozza(); renderAcquisisci();
+    h.nominativo = nomeValido(casaInfo(h.casa).nomeCond) ? casaInfo(h.casa).nomeCond : "scelta da te"; h.scegli = false; salvaBozza(); renderAcquisisci();
   });
   document.querySelectorAll("[data-rx]").forEach(b => b.onclick = () => { leggiRate(); const [i, j] = ij(b.dataset.rx); R.righe[i].rate.splice(j, 1); renderAcquisisci(); });
   document.querySelectorAll("[data-radd]").forEach(b => b.onclick = () => { leggiRate(); const h = R.righe[+b.dataset.radd]; h.rate.push({numero:h.rate.length + 1, scadenza:"", importo:"", stato:"da"}); renderAcquisisci(); });
@@ -2168,7 +2176,7 @@ function bindCardRate(){
 async function salvaRate(){
   leggiRate();
   const R = draft.rate, o = $("#rOut"), tutte = [];
-  R.righe.filter(h => !(h.scegli && !h.nominativo)).forEach(h => h.rate.forEach(x => tutte.push({h, x})));
+  R.righe.filter(h => (!draft.casa || h.casa === draft.casa) && !h.escluso && !(h.scegli && !h.nominativo)).forEach(h => h.rate.forEach(x => tutte.push({h, x})));
   if(!tutte.length){ esito(o, false, "Non ci sono rate da salvare."); return; }
   if(tutte.some(({x}) => !x.scadenza || !(Number(x.importo) > 0))){ esito(o, false, "Ogni rata deve avere scadenza e importo (oppure toglila)."); return; }
   if(!R.condominio){ esito(o, false, "Scrivi il nome del condominio."); return; }
@@ -2380,7 +2388,7 @@ async function renderImpCasa(nome){
     <label>Nome (è anche il nome della cartella)</label><input id="hcNome" value="${esc(c.nome)}" placeholder="es. Casa mamma" autocomplete="off"${n ? " disabled" : ""}>
     ${n ? `<p class="muted">Il nome non si può cambiare perché la casa ha già ${n} bollette nella sua cartella.</p>` : ""}
     <label>Indirizzo (aiuta a riconoscere le bollette)</label><input id="hcInd" value="${esc(c.indirizzo || "")}" placeholder="es. Via Roma 12, Bari" autocomplete="off">
-    <label>Nome nel condominio (come scritto nei prospetti delle rate, es. TELAROLI SILVIA)</label><input id="hcCond" value="${esc(c.nomeCond || "")}" placeholder="facoltativo" autocapitalize="characters" autocomplete="off">
+    <label>Nome nel condominio: cognome e nome della persona come è scritto nella colonna «Nominativo» (es. TELAROLI SILVIA), non il nome del condominio</label><input id="hcCond" value="${esc(c.nomeCond || "")}" placeholder="facoltativo" autocapitalize="characters" autocomplete="off">
     <label>Icona</label><div class="seg" id="hcIc">${ICONE_CASA.map(i => `<button data-i="${i}"${i === icona ? ' class="on"' : ""}>${i}</button>`).join("")}</div>
     <div class="btns"><button class="btn primary" id="hcSalva">💾 Salva</button></div>
     ${!nuova && !n ? `<div class="btns"><button class="btn danger" id="hcDel">🗑️ Togli questa casa</button></div>` : ""}
@@ -2602,11 +2610,11 @@ function renderGuida(){
 
   cap("rate", "🏢", "Le rate del condominio", `
     <p>L'amministratore manda un <b>prospetto</b> con tutti i condòmini e le rate dell'anno. Da pagare sono solo le <b>4 colonne delle rate</b> (1ª, 2ª, 3ª, 4ª) con le loro date.</p>
-    ${passo(1, "Tocca <b>Acquisisci</b>, scegli la casa e fai la <b>foto del prospetto</b> (o condividi il PDF). L'app capisce da sola che è un prospetto di rate.")}
-    ${passo(2, "La prima volta scrivi <b>come ti chiami nel foglio del condominio</b> per ogni casa (per esempio <i>TELAROLI SILVIA</i>). L'app se lo ricorda. Puoi cambiarlo anche in <b>Impostazioni → Le mie case → Nome nel condominio</b>. Poi tocca <b>Cerca le mie rate</b>.")}
-    ${passo("3a", "Se la lettura online non risponde, il telefono mostra l'<b>elenco delle righe</b> della tabella (1ª · 2ª · 3ª · 4ª rata). Tocca la <b>tua riga</b>: le 4 rate si compilano da sole con le date. Se non la trovi tocca <b>Scrivo le rate a mano</b>.")}
-    ${passo(3, "Controlla per ogni casa le 4 rate: <b>data</b> e <b>importo</b>. Se una cella del foglio era colorata, accanto c'è scritto <b>🖍️ evidenziata nel foglio</b>.")}
-    ${passo(4, "Per le rate già pagate tocca <b>✅ Già pagata</b> e scegli come (contanti, home banking…). Le altre restano «da pagare».")}
+    ${passo(1, "Tocca <b>Acquisisci</b>, scegli <b>la casa</b> (per esempio <i>Casa mamma</i>) e fai la <b>foto del prospetto</b> (o condividi il PDF). L'app capisce da sola che è un prospetto di rate. Le rate valgono solo per la casa scelta: per un'altra casa rifai Acquisisci con la stessa foto.")}
+    ${passo(2, "Compare una <b>tabellina</b> con le righe del foglio e in alto le date delle rate. Guarda sul foglio la riga della persona di quella casa e <b>tocca la riga con gli stessi importi</b>: le 4 rate si compilano da sole. Se non la trovi tocca <b>Scrivo le rate a mano</b>.")}
+    ${passo(3, "Controlla <b>data</b> e <b>importo</b> di ogni rata. L'importo si scrive con la virgola (es. 159,67).")}
+    ${passo(4, "Ogni rata ha <b>Da pagare</b> / <b>Già pagata</b>: per quelle già pagate tocca <b>Già pagata</b> e scegli come (contanti, home banking…).")}
+    ${nota("Se in <b>Impostazioni → Le mie case</b> scrivi il <b>Nome nel condominio</b> (cognome e nome della persona, es. TELAROLI SILVIA, non il nome del condominio), la lettura online prova a trovare la riga da sola.")}
     ${passo(5, "Tocca <b>Salva</b>: ogni rata diventa una scadenza con il suo avviso, nella cartella del condominio di quella casa, con la foto del prospetto.")}
     ${nota("Se rifai la foto dello stesso prospetto, le rate già salvate non vengono doppiate.")}`),
 
