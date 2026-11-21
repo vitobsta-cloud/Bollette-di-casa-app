@@ -1139,8 +1139,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.4";
+const VERSIONE = "v1.5";
 const CRONOLOGIA = [
+  {v:"v1.5", d:"21/11/2026", n:[
+    "Bolletta nella casa sbagliata: nella scheda c'è «Sposta in un'altra casa» (sposta anche la cartella sul NAS)",
+    "Home più pulita: le case si scelgono dentro Acquisisci, Archivio, Scadenze e Grafici"
+  ]},
   {v:"v1.4", d:"21/11/2026", n:[
     "«Leggi di nuovo» rimette sempre la bolletta su «Da pagare» (se non l'hai cambiato tu): niente più «Domiciliata» rimasto da prima",
     "Modi di pagamento: Contanti, Bancomat, Carta di credito, Home banking, PagoPA, Bollettino postale, Bonifico, Altro"
@@ -1203,8 +1207,6 @@ async function renderHome(){
       <div class="sum">${list.length ? `<a href="#" data-go="scadenze"><b>Da pagare</b>: ${dp.length} ${dp.length === 1 ? "bolletta" : "bollette"}${tot ? " · " + euro(tot) : ""}</a>${scad ? `<br><span style="color:var(--bad)">⚠️ Scadute non pagate: ${scad}</span>` : ""}<br>${dom ? `Domiciliate in arrivo: ${dom} · ` : ""}Spesa ${anno}: ${euro(spesa) || "0 €"}` : "Nessuna bolletta ancora: inizia da <b>Acquisisci</b>."}${nDaCaricare ? `<br>⏳ Da caricare nell'archivio: ${nDaCaricare}` : ""}</div>
     </div>
     ${nuovi.length ? `<div class="banner info" id="bNuovi" style="cursor:pointer"><div>🆕 <b>${nuovi.length} ${nuovi.length > 1 ? "nuove bollette" : "nuova bolletta"} da ${esc(daChi.join(" e "))}</b><br><small>tocca per vederle</small></div></div>` : ""}
-    ${piuCase() ? caseCasa().map(c => { const l = list.filter(b => b.casa === c.nome), d = l.filter(daPagare), u = l.filter(urgente).length, sp = l.filter(b => dataRif(b).startsWith(String(anno))).reduce((t, b) => t + (Number(b.importo) || 0), 0);
-      return `<div class="entry" data-hc="${esc(c.nome)}"><div class="ico" style="background:#e0f2fe">${esc(c.icona || "🏠")}</div><div class="txt"><div class="t1">${esc(c.nome)}</div><div class="t2">${d.length} da pagare · ${anno}: ${esc(euro(sp) || "0 €")}</div></div>${u ? `<span class="pill warn">${u} entro 7 gg</span>` : ""}</div>`; }).join("") + `<div style="height:6px"></div>` : ""}
     ${puo("aggiungere") ? tile("acquisisci", "📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta") : ""}
     ${tile("archivio", "🗂️", "#e6eef8", "Archivio", piuCase() ? "Le bollette divise per casa e fornitore" : "Le bollette divise per fornitore", nuovi.length ? `<span class="cnt" style="background:#e5484d">${nuovi.length}</span>` : "")}
     ${tile("scadenze", "⏰", "#f8e6dc", "Scadenze", "Bollette da pagare e avvisi", urg ? `<span class="cnt" style="background:var(--bad)">${urg}</span>` : "")}
@@ -1212,7 +1214,6 @@ async function renderHome(){
     ${tile("impostazioni", "⚙️", "#ece7f4", "Impostazioni", "Archivio, avvisi, utenti di casa, guida")}
     ${footerHTML()}`;
   document.querySelectorAll(".tile").forEach(t => t.onclick = () => setView(t.dataset.v));
-  document.querySelectorAll("[data-hc]").forEach(x => x.onclick = () => setView("archivio", {casa:x.dataset.hc}));
   document.querySelectorAll("[data-go]").forEach(x => x.onclick = e => { e.preventDefault(); setView(x.dataset.go); });
   bindFooter();
   if($("#bNuovi")) $("#bNuovi").onclick = () => setView("archivio", {nuovi:true});
@@ -1673,6 +1674,7 @@ async function renderDettaglio(id){
       ${daPagare(a) ? `<div class="btns"><button class="btn primary" id="bPagata" style="background:var(--ok);border-color:var(--ok)">✅ Segna come pagata</button></div>` : a.stato === "pag" ? `<div class="btns"><button class="btn small" id="bNonPagata">↩️ Non è pagata</button></div>` : ""}
       <label>Documenti (tocca per aprire)</label>
       <div class="thumbs" id="dThumbs">${files.map((f, i) => `<div class="thumb" data-i="${i}">${f.local && f.mime.startsWith("image/") ? `<img src="${dataUrl(f)}">` : (isImg(f.name) ? "🖼️" : "📄") + "<br>" + esc(f.name.slice(0, 22))}</div>`).join("") || `<span class="muted">Nessuno.</span>`}</div>
+      ${puoModificare(a) && piuCase() && !a.daCaricare ? `<div class="btns"><button class="btn" id="bSposta">🏠 Sposta in un'altra casa</button></div>` : ""}
       <div class="btns">
         ${puoModificare(a) ? `<button class="btn" id="bEdit">✏️ Modifica</button>` : ""}
         <button class="btn" id="bPrint">🖨️ Stampa</button>
@@ -1690,6 +1692,7 @@ async function renderDettaglio(id){
   if($("#bPagata")) $("#bPagata").onclick = () => dialogoPagata(a);
   if($("#bNonPagata")) $("#bNonPagata").onclick = async () => { if(!(await conferma("Rimettere la bolletta tra quelle da pagare?", "Sì"))) return; await cambiaStato(a, {stato:"da", pagataIl:"", pagataCon:""}); renderDettaglio(a.id); };
   if($("#bEdit")) $("#bEdit").onclick = () => { draft = null; setView("acquisisci", a); };
+  if($("#bSposta")) $("#bSposta").onclick = () => dialogoSposta(a);
   $("#bPrint").onclick = async () => {
     const b = $("#bPrint"); b.disabled = true; b.textContent = "⏳ Preparo…";
     try{ await stampaScheda(a); }catch(e){ toast(e.message, true); }
@@ -1724,6 +1727,26 @@ async function cambiaStato(a, campi){
   catch(e){ a.daCaricare = true; toast("Salvato sul telefono: lo scrivo nell'archivio appena è raggiungibile.", true); }
   await putBolletta(a); syncReminders();
   if(a.stato === "pag" && A && A.annullaNotifica) A.annullaNotifica(a.id);
+}
+/* Sposta la bolletta (cartella e documenti) in un'altra casa */
+function dialogoSposta(a){
+  const altre = caseCasa().filter(c => c.nome !== a.casa);
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box"><h2>🏠 Sposta in un'altra casa</h2><p class="muted" style="margin:2px 0 8px">${esc(a.ente || "")} · ${esc(euro(a.importo))}${a.casa ? " · ora in " + esc(a.casa) : ""}</p>
+    ${altre.map(c => `<button class="bigpick" data-to="${esc(c.nome)}"><span class="ic" style="background:#e0f2fe">${esc(c.icona || "🏠")}</span><span><span class="t1">${esc(c.nome)}</span>${c.indirizzo ? `<br><span class="t2">${esc(c.indirizzo)}</span>` : ""}</span></button>`).join("")}
+    <div id="spMsg"></div><div class="btns"><button class="btn" id="spNo">Annulla</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector("#spNo").onclick = () => m.remove();
+  m.onclick = e => { if(e.target === m) m.remove(); };
+  m.querySelectorAll("[data-to]").forEach(b => b.onclick = async () => {
+    if(!archivioPronto()){ esito(m.querySelector("#spMsg"), false, "Serve l'archivio raggiungibile (a casa o con la VPN)."); return; }
+    m.querySelectorAll("button").forEach(x => x.disabled = true);
+    try{
+      const n = await spostaBolletta(a, {casa:b.dataset.to}, f => esito(m.querySelector("#spMsg"), null, "Sposto " + f + "…"));
+      m.remove(); syncReminders(); toast("✅ Spostata in " + b.dataset.to);
+      setView("dettaglio", n.id, true);
+    }catch(e){ esito(m.querySelector("#spMsg"), false, e.message); m.querySelectorAll("button").forEach(x => x.disabled = false); }
+  });
 }
 function dialogoPagata(a){
   return new Promise(res => {
@@ -2197,7 +2220,8 @@ function renderGuida(){
     ${passo(1, "Vai in <b>Impostazioni → Le mie case</b> e tocca <b>➕ Aggiungi una casa</b>. Scrivi il nome (es. <i>Casa mamma</i>), l'indirizzo e scegli un'icona, poi <b>Salva</b>.",
       schermo("Le mie case", tile("🏠", "#e0f2fe", "Casa mia", "Via San Bernardino 45 · 31 bollette") + tile("👵", "#e0f2fe", "Casa mamma", "Via Roma 12, Bari · 9 bollette") + tile("➕", "#f1f5f9", "Aggiungi una casa", "es. casa al mare", true)))}
     ${passo(2, "In <b>Acquisisci</b> l'app chiede per prima cosa <b>«Per quale casa?»</b>: tocca la casa giusta. Quando la bolletta arriva con Condividi, l'app prova a riconoscere la casa dall'indirizzo, dal codice cliente o dal POD; se non ci riesce te lo chiede.")}
-    ${passo(3, "Nella <b>Home</b>, in <b>Archivio</b>, in <b>Scadenze</b> e nei <b>Grafici</b> trovi in alto le case: tocca una casa per vedere solo le sue bollette, oppure <b>Tutte</b>.")}
+    ${passo(3, "Bolletta nella casa sbagliata? Aprila e tocca <b>🏠 Sposta in un'altra casa</b>: l'app sposta anche la cartella con i documenti.")}
+    ${passo(4, "In <b>Archivio</b>, in <b>Scadenze</b> e nei <b>Grafici</b> trovi in alto le case: tocca una casa per vedere solo le sue bollette, oppure <b>Tutte</b>.")}
     ${nota("Il nome di una casa che ha già delle bollette non si cambia (è il nome della sua cartella). L'indirizzo e l'icona sì.")}
     ${nota("Servono altri tipi di bolletta (assicurazione, canone RAI, caldaia…)? <b>Impostazioni → Tipi di bolletta → Aggiungi</b>.")}`),
 
