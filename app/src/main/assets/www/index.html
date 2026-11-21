@@ -512,7 +512,7 @@ const dataRif = b => b.periodoA || b.emessa || b.scadenza || "";
 // Fornitori noti: nome da mostrare, parole con cui riconoscerli, tipo più probabile
 const ENTI_NOTI = [
   ["Enel Energia", /enel\s*energia/i, ""], ["Servizio Elettrico Nazionale", /servizio\s+elettrico\s+nazionale|servizioelettriconazionale|servizio\s+di\s+maggior\s+tutela/i, "Luce"],
-  ["A2A Energia", /\ba2a\b/i, ""], ["Iren", /\biren\b/i, ""], ["Hera Comm", /hera\s*comm|gruppo\s+hera|\bhera\s+s\.?p\.?a/i, ""],
+  ["A2A Ciclo Idrico", /a2a\s*ciclo\s*idrico|a2acicloidrico/i, "Acqua"], ["Acque Bresciane", /acque\s+bresciane/i, "Acqua"], ["A2A Energia", /\ba2a\b/i, ""], ["Iren", /\biren\b/i, ""], ["Hera Comm", /hera\s*comm|gruppo\s+hera|\bhera\s+s\.?p\.?a/i, ""],
   ["Edison Energia", /edison\s*energia/i, ""], ["Eni Plenitude", /plenitude|eni\s+gas\s+e\s+luce/i, ""], ["Sorgenia", /sorgenia/i, ""],
   ["Acea Energia", /acea\s*energia/i, ""], ["Acea Ato 2", /acea\s*ato\s*2/i, "Acqua"], ["Engie", /\bengie\b/i, ""], ["Illumia", /illumia/i, ""],
   ["E.ON Energia", /\be\.?on\b(?!\w)/i, ""], ["Iberdrola", /iberdrola/i, ""], ["Octopus Energy", /octopus\s*energy/i, ""], ["NeN", /\bnen\s+(?:s\.?p\.?a|energia)/i, ""],
@@ -542,7 +542,8 @@ const tutteDate = s => [...String(s).matchAll(new RegExp(DATA_RX, "gi"))].map(da
 const ultimoGiorno = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 function parseBolletta(text){
-  const T = String(text || "").replace(/ /g, " ");
+  const T = String(text || "").replace(/ /g, " ")
+    .replace(/(^|\n)\s*(\d{1,2})\s*\n\s*(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s*\n\s*(\d{4})\s*(?=\n|$)/gi, "$1$2 $3 $4");
   const grezze = T.split("\n").map(l => l.trim()).filter(l => l.replace(/\s+/g, ""));   // con gli spazi doppi tra le colonne
   const righe = grezze.map(l => l.replace(/\s+/g, " "));
   const low = T.toLowerCase();
@@ -572,7 +573,9 @@ function parseBolletta(text){
     const gas = /\bpdr\b|gas\s+naturale|\bsmc\b|fornitura\s+(?:di\s+)?gas|bolletta\s+gas/i.test(T);
     const acqua = /servizio\s+idrico|acquedotto|fognatura|depurazione|\bm[c3³]\b/i.test(T);
     const tel = /\bfibra\b|\badsl\b|linea\s+(?:fissa|telefonica)|telefon|\bgiga\b|traffico\s+(?:voce|dati)|internet/i.test(T);
-    if(luce && gas) r.tipo = "Luce e gas"; else if(luce) r.tipo = "Luce"; else if(gas) r.tipo = "Gas";
+    const idrico = /servizio\s+idrico|ciclo\s+idrico|acquedotto/i.test(T) && !/\bkwh\b|energia\s+elettrica/i.test(T);
+    if(idrico) r.tipo = "Acqua";
+    else if(luce && gas) r.tipo = "Luce e gas"; else if(luce) r.tipo = "Luce"; else if(gas) r.tipo = "Gas";
     else if(!r.tipo && acqua) r.tipo = "Acqua"; else if(!r.tipo && tel) r.tipo = "Telefono";
   }
 
@@ -633,6 +636,15 @@ function parseBolletta(text){
     }
   }
   if(!r.periodoDa){
+    const DR = new RegExp("^dal\\s+(?:" + DATA_RX + ")\\s*$", "i"), AR = new RegExp("^al\\s+(?:" + DATA_RX + ")\\s*$", "i");
+    for(let i = 0; i < righe.length && !r.periodoDa; i++){
+      if(!DR.test(righe[i]) || /annu|12\s*mesi/i.test((righe[i - 1] || "") + " " + righe[i])) continue;
+      for(let k = i + 1; k <= i + 12 && k < righe.length; k++){
+        if(AR.test(righe[k])){ const a = tutteDate(righe[i])[0], b = tutteDate(righe[k])[0]; if(a && b && a < b){ r.periodoDa = a; r.periodoA = b; } break; }
+      }
+    }
+  }
+  if(!r.periodoDa){
     const p2 = primoBuono(new RegExp("\\bdal\\s+(?:" + DATA_RX + ")\\s+al\\s+(?:" + DATA_RX + ")", "gi"));
     if(p2){ const ds = tutteDate(p2[0]); if(ds.length >= 2){ r.periodoDa = ds[0]; r.periodoA = ds[1]; } }
   }
@@ -648,6 +660,7 @@ function parseBolletta(text){
 
   // ---- contratto ----
   const pod = T.match(/\b[I1l|]T\s?\d{3}\s?E\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = "IT" + pod[0].replace(/\s/g, "").toUpperCase().slice(2);
+  if(!r.pod){ const pn = dopo(/codice\s+pod|\bpod\b\s*:/i, /(?:^|\D)(\d{12,20})(?!\d)/, 2); if(pn) r.pod = pn.v[1]; }
   const pdr = T.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i); if(pdr) r.pod = r.pod ? r.pod + " · PDR " + pdr[1] : pdr[1];
   const kCli = /codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n\s?[°º®'’*o]?\s*cliente|id\s+cliente|codice\s+contratto/i;
   const cc = dopo(kCli, /(?:^|[^\dA-Z])(\d{6,15})(?![\dA-Z])/i, 3) || dopo(kCli, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
@@ -705,7 +718,7 @@ function parseBolletta(text){
 
   // scadenza: tra le date vicine alla parola "scadenza", la prima che non è del periodo né dell'emissione
   {
-    const KS = /quando\s+s[ce]ade\s*\??|scadenza(?:\s+(?:di\s+)?pagamento|\s+fattura|\s+bolletta)?|da\s+pagare\s+entro(?:\s+il)?|pagare\s+entro(?:\s+il)?|entro\s+il|scade\s+il|data\s+(?:di\s+)?scadenza|termine\s+di\s+pagamento/i;
+    const KS = /quando\s+s[ce]ade\s*\??|entro\s+quando\s*\??|scadenza(?:\s+(?:di\s+)?pagamento|\s+fattura|\s+bolletta)?|da\s+pagare\s+entro(?:\s+il)?|pagare\s+entro(?:\s+il)?|entro\s+il|scade\s+il|data\s+(?:di\s+)?scadenza|termine\s+di\s+pagamento/i;
     // "La tua offerta … scade il 31/03/2027": è la fine del contratto, non della bolletta
     const nonPagamento = i => /offerta|contratto|tariffa|promozion|condizioni\s+economiche|prezzo\s+(?:fisso|bloccato)|bonus|carta|documento\s+d/i.test([righe[i - 2], righe[i - 1], righe[i]].filter(Boolean).join(" "));
     const escluse = new Set([r.periodoDa, r.periodoA, r.emessa].filter(Boolean));
@@ -715,7 +728,20 @@ function parseBolletta(text){
       const quando = /quando/i.test(m[0]);
       if(!quando && /scade\s+il/i.test(m[0]) && nonPagamento(i)) return;
       const dopoK = tutteDate(l.slice(m.index + m[0].length)), primaK = tutteDate(l.slice(0, m.index));
-      [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK].forEach((ds, peso) => ds.forEach(d => cand.push({d, peso:quando ? peso - 10 : peso})));
+      const vicine = [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK];
+      if(quando) for(let k = 3; k <= 8; k++) vicine.push(tutteDate(righe[i + k] || ""));   // nei riquadri la data è qualche riga sotto
+      if(quando){
+        const MESI = /^(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)$/i;
+        let g = "", me = "", an = "";
+        for(let k = i + 1; k <= i + 15 && k < righe.length; k++){
+          const x = righe[k].trim();
+          if(!g && /^\d{1,2}$/.test(x) && +x >= 1 && +x <= 31) g = x;
+          else if(g && !me && MESI.test(x)) me = x;
+          else if(me && !an && /^20\d{2}$/.test(x)) an = x;
+        }
+        if(g && me && an){ const d = tutteDate(`${g} ${me} ${an}`)[0]; if(d) vicine.push([d]); }
+      }
+      vicine.forEach((ds, peso) => ds.forEach(d => cand.push({d, peso:quando ? peso - 10 : peso})));
     });
     // la data scritta subito dopo "entro il / scadenza" vale sempre; le altre solo se non sono del periodo o dell'emissione
     // una bolletta si paga entro pochi mesi dall'emissione (o dalla fine del periodo)
@@ -1228,8 +1254,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.21";
+const VERSIONE = "v1.22";
 const CRONOLOGIA = [
+  {v:"v1.22", d:"21/11/2026", n:["Lettura sul telefono: riconosce A2A Ciclo Idrico (acqua) e non la scambia più per luce.", "Legge la scadenza nei riquadri «Entro quando?» anche se giorno, mese e anno sono su tre righe (09 / Aprile / 2026).", "Legge il codice POD dell'acqua (solo numeri) e il consumo in metri cubi."]},
   {v:"v1.21", d:"21/11/2026", n:["Lettura sul telefono migliorata (bollette Enel): la scadenza è quella di «Quando scade?», non la fine dell'offerta; il periodo è quello della bolletta, non il consumo annuo.", "Letti anche numero e data della fattura elettronica, N° cliente, POD e consumo del periodo con «Consumi rilevati»."]},
   {v:"v1.20", d:"21/11/2026", n:["Quando salvi le rate del condominio compare un riquadro che dice per quale casa sono state salvate, e se qualcuna c'era già."]},
   {v:"v1.19", d:"21/11/2026", n:["Rate del condominio: valgono per la casa che scegli in Acquisisci (es. Casa mamma). Tocchi la sua riga nella tabellina, anche senza aver scritto il nome.", "Se come «Nome nel condominio» è scritto il nome del condominio invece della persona, l'app non lo usa e lo segnala."]},
