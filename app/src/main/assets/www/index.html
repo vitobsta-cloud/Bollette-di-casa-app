@@ -494,7 +494,7 @@ const dataRif = b => b.periodoA || b.emessa || b.scadenza || "";
    ========================================================= */
 // Fornitori noti: nome da mostrare, parole con cui riconoscerli, tipo più probabile
 const ENTI_NOTI = [
-  ["Enel Energia", /enel\s*energia/i, ""], ["Servizio Elettrico Nazionale", /servizio\s+elettrico\s+nazionale/i, "Luce"],
+  ["Enel Energia", /enel\s*energia/i, ""], ["Servizio Elettrico Nazionale", /servizio\s+elettrico\s+nazionale|servizioelettriconazionale|servizio\s+di\s+maggior\s+tutela/i, "Luce"],
   ["A2A Energia", /\ba2a\b/i, ""], ["Iren", /\biren\b/i, ""], ["Hera Comm", /hera\s*comm|gruppo\s+hera|\bhera\s+s\.?p\.?a/i, ""],
   ["Edison Energia", /edison\s*energia/i, ""], ["Eni Plenitude", /plenitude|eni\s+gas\s+e\s+luce/i, ""], ["Sorgenia", /sorgenia/i, ""],
   ["Acea Energia", /acea\s*energia/i, ""], ["Acea Ato 2", /acea\s*ato\s*2/i, "Acqua"], ["Engie", /\bengie\b/i, ""], ["Illumia", /illumia/i, ""],
@@ -526,7 +526,8 @@ const ultimoGiorno = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
 
 function parseBolletta(text){
   const T = String(text || "").replace(/ /g, " ");
-  const righe = T.split("\n").map(l => l.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const grezze = T.split("\n").map(l => l.trim()).filter(l => l.replace(/\s+/g, ""));   // con gli spazi doppi tra le colonne
+  const righe = grezze.map(l => l.replace(/\s+/g, " "));
   const low = T.toLowerCase();
   const r = {ente:"", tipo:"", importo:"", scadenza:"", emessa:"", numero:"", periodoDa:"", periodoA:"", stato:"da", codiceCliente:"", pod:"", indirizzo:"", consumo:"", unita:"", lettura:"", note:""};
   // dopo una parola chiave, cerca il valore nella stessa riga o nelle 2 successive
@@ -562,13 +563,16 @@ function parseBolletta(text){
   const IMP = new RegExp(IMPORTO, "i");
   const candidati = [];
   const chiaviImp = [
-    [/totale\s+(?:da\s+pagare|bolletta|fattura|documento|dovuto)|importo\s+(?:totale\s+)?da\s+pagare|importo\s+(?:della\s+)?bolletta|totale\s+importo|importo\s+da\s+versare|da\s+pagare\s+entro/i, 3],
+    [/totale\s+(?:da\s+pagare|bolletta|fattura|documento|dovuto)|importo\s+da\s+pagare|importo\s+(?:totale\s+)?da\s+pagare|importo\s+(?:della\s+)?bolletta|totale\s+importo|importo\s+da\s+versare|da\s+pagare\s+entro/i, 3],
     [/importo\s+totale|totale\s+a\s+pagare|saldo\s+da\s+pagare|totale\s+(?:euro|€)/i, 2],
     [/^totale\b/i, 1]];
   righe.forEach((l, i) => {
     for(const [rx, peso] of chiaviImp){
       const m = l.match(rx); if(!m) continue;
-      for(const riga of [l.slice(m.index + m[0].length), righe[i + 1] || ""]){
+      const resto = l.slice(m.index + m[0].length);
+      const vicine = [resto, righe[i + 1] || ""];
+      if(peso === 3 && !IMP.test(resto)) vicine.push(righe[i - 1] || "");   // "78,56 €" scritto sopra "TOTALE DA PAGARE"
+      for(const riga of vicine){
         const v = riga.match(IMP);
         if(v){ const n = num(v[1]); if(n > 0 && n < 100000){ candidati.push({n, peso}); break; } }
       }
@@ -576,7 +580,8 @@ function parseBolletta(text){
   });
   if(candidati.length){
     // vince il valore con più "voti" (le bollette ripetono il totale più volte)
-    const voti = new Map(); for(const c of candidati) voti.set(c.n, (voti.get(c.n) || 0) + c.peso);
+    const pesoMax = Math.max(...candidati.map(c => c.peso));
+    const voti = new Map(); for(const c of candidati.filter(c => c.peso === pesoMax)) voti.set(c.n, (voti.get(c.n) || 0) + 1);
     r.importo = [...voti.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
   }
 
@@ -588,16 +593,25 @@ function parseBolletta(text){
   // ---- emissione e numero ----
   const e1 = dopo(/data\s+(?:di\s+)?emissione|emess[ao]\s+il|data\s+(?:della\s+)?fattura|data\s+documento|data\s+bolletta/i, DRX, 1);
   if(e1) r.emessa = dataDa(e1.v);
-  const n1 = T.match(/(?:fattura|bolletta|documento|ft\.?)\s*(?:elettronica\s*)?(?:n\.?|nr\.?|num(?:ero)?\.?|°)\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i)
+  const n1 = T.match(/\b(?:n\.?|nr\.?|n°|num(?:ero)?\.?)\s*(?:della\s+)?(?:fattura|bolletta|documento)(?:\s+elettronica)?\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i)
+    || T.match(/(?:fattura|bolletta|documento|ft\.?)\s*(?:elettronica\s*)?(?:n\.?|nr\.?|num(?:ero)?\.?|°)\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i)
     || T.match(/numero\s+(?:della\s+)?(?:fattura|bolletta|documento)\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i);
   if(n1 && /\d/.test(n1[1])) r.numero = n1[1].replace(/[.\-\/]+$/, "");
-  if(!r.emessa && n1){ const after = T.slice(n1.index, n1.index + 80).match(/\bdel\s+(.{6,20})/i); if(after){ const d = tutteDate(after[1])[0]; if(d) r.emessa = d; } }
+  if(!r.emessa && n1){ const after = T.slice(n1.index, n1.index + 160).match(/\bdel\s+(.{6,20})/i); if(after){ const d = tutteDate(after[1])[0]; if(d) r.emessa = d; } }
 
   // ---- periodo ----
   const p1 = T.match(new RegExp("(?:periodo|fatturazione|consumi|competenza|riferimento)[^\\n]{0,60}?(?:dal|da)\\s+(" + DATA_RX + ")\\s*(?:al|a|-|–)\\s*(" + DATA_RX + ")", "i"))
     || T.match(new RegExp("\\bdal\\s+(" + DATA_RX + ")\\s+al\\s+(" + DATA_RX + ")", "i"))
     || T.match(new RegExp("(?:periodo|fatturazione|competenza|riferimento)[^\\n]{0,40}?(" + DATA_RX + ")\\s*(?:-|–|al|a|\\/)\\s*(" + DATA_RX + ")", "i"));
   if(p1){ const ds = tutteDate(p1[0]); if(ds.length >= 2){ r.periodoDa = ds[0]; r.periodoA = ds[1]; } }
+  if(!r.periodoDa){
+    const MM = "(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)[a-z]*";
+    const ab = T.match(new RegExp("\\b" + MM + "\\.?\\s?(\\d{4})\\s*[-–\\/]\\s*" + MM + "\\.?\\s?(\\d{4})\\b", "i"));
+    if(ab){
+      const m1 = MESI_RX[ab[1].toLowerCase()], y1 = +ab[2], m2 = MESI_RX[ab[3].toLowerCase()], y2 = +ab[4];
+      if(m1 && m2 && y2 >= y1){ r.periodoDa = `${y1}-${String(m1).padStart(2, "0")}-01`; r.periodoA = `${y2}-${String(m2).padStart(2, "0")}-${ultimoGiorno(y2, m2)}`; }
+    }
+  }
   if(!r.periodoDa){
     const pm = T.match(/periodo[^\n]{0,30}?\b(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s*(\d{4})?\s*[-–\/]\s*(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})/i)
       || T.match(/periodo[^\n]{0,30}?\b(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})()()/i);
@@ -611,10 +625,17 @@ function parseBolletta(text){
   // ---- contratto ----
   const pod = T.match(/\bIT\s?\d{3}\s?E\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = pod[0].replace(/\s/g, "").toUpperCase();
   const pdr = T.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i); if(pdr) r.pod = r.pod ? r.pod + " · PDR " + pdr[1] : pdr[1];
-  const cc = dopo(/codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|id\s+cliente|codice\s+contratto/i, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
+  const cc = dopo(/codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n[°º]\s*cliente|id\s+cliente|codice\s+contratto/i, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
   if(cc) r.codiceCliente = cc.v[1].trim();
-  const ind = dopo(/indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 2);
-  if(ind) r.indirizzo = ind.v[1].replace(/\s+/g, " ").trim().slice(0, 80);
+  const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 2);
+  if(ind){
+    // solo la colonna dell'indirizzo: nella riga originale le colonne sono separate da due o più spazi
+    const g = grezze[ind.i] || "", inizio = g.toLowerCase().indexOf(ind.v[1].slice(0, 6).toLowerCase());
+    let v = (inizio >= 0 ? g.slice(inizio) : ind.v[1]).split(/\s{2,}/)[0];
+    const cap = (grezze[ind.i + 1] || "").match(/^(\d{5}\s+[A-ZÀ-Ù][A-Za-zÀ-ù' ]{1,30}?)(?:\s{2,}|$)/);
+    if(cap && !/\b\d{5}\b/.test(v)) v += " " + cap[1];
+    r.indirizzo = v.replace(/\s+/g, " ").trim().slice(0, 80);
+  }
 
   // ---- consumi ----
   const unitaPer = {Luce:"kWh", Gas:"Smc", Acqua:"m³"};
@@ -660,7 +681,8 @@ function parseBolletta(text){
       const dopoK = tutteDate(l.slice(m.index + m[0].length)), primaK = tutteDate(l.slice(0, m.index));
       [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK].forEach((ds, peso) => ds.forEach(d => cand.push({d, peso})));
     });
-    const buona = cand.filter(c => !escluse.has(c.d) && (!r.emessa || c.d >= r.emessa)).sort((a, b) => a.peso - b.peso)[0];
+    // la data scritta subito dopo "entro il / scadenza" vale sempre; le altre solo se non sono del periodo o dell'emissione
+    const buona = cand.filter(c => (c.peso === 0 || !escluse.has(c.d)) && (!r.emessa || c.d >= r.emessa)).sort((a, b) => a.peso - b.peso)[0];
     if(buona) r.scadenza = buona.d; else if(r.scadenza && escluse.has(r.scadenza)) r.scadenza = "";
   }
   // date nel futuro lontano o prima del 2000: scartate
@@ -1164,8 +1186,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.11";
+const VERSIONE = "v1.12";
 const CRONOLOGIA = [
+  {v:"v1.12", d:"21/11/2026", n:[
+    "Lettura sul telefono migliorata con una bolletta vera (Servizio Elettrico Nazionale): «TOTALE DA PAGARE» vince sugli altri totali, anche quando l'importo è scritto sopra la scritta",
+    "Riconosciuti il periodo «BIMESTRE OTT.2026 - NOV.2026», il numero «N. Fattura elettronica … Del …», «N° CLIENTE» e l'indirizzo «Forniamo energia in …»"
+  ]},
   {v:"v1.11", d:"21/11/2026", n:[
     "Acquisisci: casa sbagliata? Tocca il nome della casa («… · cambia») oppure ← Indietro e torni a «Per quale casa?»",
     "Tornando dalla Home, se non avevi ancora scelto la bolletta, Acquisisci richiede la casa"
