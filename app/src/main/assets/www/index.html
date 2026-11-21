@@ -760,17 +760,22 @@ async function geminiModelli(){
   return nomi;
 }
 // Prova il modello salvato; se Google è occupato (503/500) o il modello non c'è, prova da solo gli altri modelli gratuiti
-async function geminiSicuro(body){
-  let res = await geminiCall(body);
+async function geminiSicuro(body, avanza){
+  // prova il modello salvato; se è occupato o ha finito il limite prova gli altri gratuiti, ma mai oltre ~70 secondi in tutto
+  const inizio = Date.now(), prova = m => { avanza && avanza("Provo il modello " + (m || settings().geminiModel || DEFAULTS.geminiModel) + "…"); return geminiCall(body, m); };
+  let res = await prova();
   if(res.status === 200) return res;
-  const occupato = [500, 503, 404, 408].includes(res.status) || (res.status === 400 && /model/i.test(res.j.error?.message || "")) || res.status === 429;
-  if(!occupato) return res;
+  const msg = String(res.j.error?.message || "");
+  const altroModello = [500, 503, 404, 429].includes(res.status) || (res.status === 400 && /model/i.test(msg));
+  if(!altroModello) return res;          // chiave sbagliata, nessuna risposta (408)…: inutile insistere
   let altri = [];
   try{ altri = (await geminiModelli()).filter(m => m !== settings().geminiModel); }catch(e){}
-  for(const m of altri.slice(0, 8)){
-    const r2 = await geminiCall(body, m);
+  for(const m of altri.slice(0, 6)){
+    if(Date.now() - inizio > 70000) break;
+    const r2 = await prova(m);
     if(r2.status === 200){ saveSettings({geminiModel:m}); return r2; }
     res = r2;
+    if(r2.status === 408) break;
   }
   return res;
 }
@@ -1158,8 +1163,11 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.8";
+const VERSIONE = "v1.9";
 const CRONOLOGIA = [
+  {v:"v1.9", d:"21/11/2026", n:[
+    "«Verifica» della chiave Google: mostra passo passo cosa sta provando e non supera mai il minuto e mezzo; se Google non risponde si ferma subito"
+  ]},
   {v:"v1.8", d:"21/11/2026", n:[
     "Lettura online e «Verifica»: se Google non risponde entro 25 secondi l'app passa oltre e lo dice, invece di restare a girare"
   ]},
@@ -2244,7 +2252,8 @@ function renderImpLett(){
     if(!settings().geminiKey){ esito(o, false, "Incolla prima la chiave."); return; }
     esito(o, null, "Provo il collegamento a Google…");
     try{
-      const {status, j} = await geminiSicuro({contents:[{parts:[{text:"Rispondi solo OK"}]}]});
+      const t0 = Date.now();
+      const {status, j} = await geminiSicuro({contents:[{parts:[{text:"Rispondi solo OK"}]}]}, t => esito(o, null, t + " (" + Math.round((Date.now() - t0) / 1000) + " s)"));
       if(status === 200) esito(o, true, "Funziona! Le bollette verranno controllate anche online.");
       else if(status === 429){
         const msg = String(j.error?.message || ""), giorno = /per\s*day|daily|PerDay/i.test(msg);
