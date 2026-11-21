@@ -614,20 +614,27 @@ function parseBolletta(text){
     || T.match(/(?:fattura|bolletta|documento|ft\.?)\s*(?:elettronica\s*)?(?:n\.?|nr\.?|num(?:ero)?\.?|°)\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i)
     || T.match(/numero\s+(?:della\s+)?(?:fattura|bolletta|documento)\s*:?\s*([A-Z0-9][A-Z0-9\/\-.]{3,24})/i);
   if(n1 && /\d/.test(n1[1])) r.numero = n1[1].replace(/[.\-\/]+$/, "");
+  { const fe = T.match(/fattura\s+elettronica\s+n\.?\s*(\d{6,20})\s+del\s+(\d{1,2}[\/.]\d{1,2}[\/.]\d{4})/i);
+    if(fe){ r.numero = fe[1]; r.emessa = r.emessa || tutteDate(fe[2])[0] || ""; } }
   if(!r.emessa && n1){ const after = T.slice(n1.index, n1.index + 160).match(/\bdel\s+(.{6,20})/i); if(after){ const d = tutteDate(after[1])[0]; if(d) r.emessa = d; } }
 
   // ---- periodo ----
-  const p1 = T.match(new RegExp("(?:periodo|fatturazione|consumi|competenza|riferimento)[^\\n]{0,60}?(?:dal|da)\\s+(" + DATA_RX + ")\\s*(?:al|a|-|–)\\s*(" + DATA_RX + ")", "i"))
-    || T.match(new RegExp("\\bdal\\s+(" + DATA_RX + ")\\s+al\\s+(" + DATA_RX + ")", "i"))
-    || T.match(new RegExp("(?:periodo|fatturazione|competenza|riferimento)[^\\n]{0,40}?(" + DATA_RX + ")\\s*(?:-|–|al|a|\\/)\\s*(" + DATA_RX + ")", "i"));
+  const annuo = idx => /annu|anno|12\s*mesi|ultimi\s+\d+\s+mesi|storico|media/i.test(T.slice(Math.max(0, idx - 50), idx + 5));
+  const primoBuono = rx => { for(const m of T.matchAll(rx)){ if(!annuo(m.index)) return m; } return null; };
+  let p1 = primoBuono(new RegExp("(?:periodo|fatturazione|consumi|competenza|riferimento)[^\\n]{0,60}?(?:dal|da)\\s+(?:" + DATA_RX + ")\\s*(?:al|a|-|–)\\s*(?:" + DATA_RX + ")", "gi"))
+    || primoBuono(new RegExp("(?:periodo|fatturazione|competenza|riferimento)[^\\n]{0,40}?(?:" + DATA_RX + ")\\s*(?:-|–|al|a|\\/)\\s*(?:" + DATA_RX + ")", "gi"));
   if(p1){ const ds = tutteDate(p1[0]); if(ds.length >= 2){ r.periodoDa = ds[0]; r.periodoA = ds[1]; } }
   if(!r.periodoDa){
     const MM = "(gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)[a-z]*";
-    const ab = T.match(new RegExp("\\b" + MM + "\\.?\\s?(\\d{4})\\s*[-–\\/]\\s*" + MM + "\\.?\\s?(\\d{4})\\b", "i"));
+    const ab = primoBuono(new RegExp("\\b" + MM + "\\.?\\s?(\\d{4})\\s*[-–\\/]\\s*" + MM + "\\.?\\s?(\\d{4})\\b", "gi"));
     if(ab){
       const m1 = MESI_RX[ab[1].toLowerCase()], y1 = +ab[2], m2 = MESI_RX[ab[3].toLowerCase()], y2 = +ab[4];
       if(m1 && m2 && y2 >= y1){ r.periodoDa = `${y1}-${String(m1).padStart(2, "0")}-01`; r.periodoA = `${y2}-${String(m2).padStart(2, "0")}-${ultimoGiorno(y2, m2)}`; }
     }
+  }
+  if(!r.periodoDa){
+    const p2 = primoBuono(new RegExp("\\bdal\\s+(?:" + DATA_RX + ")\\s+al\\s+(?:" + DATA_RX + ")", "gi"));
+    if(p2){ const ds = tutteDate(p2[0]); if(ds.length >= 2){ r.periodoDa = ds[0]; r.periodoA = ds[1]; } }
   }
   if(!r.periodoDa){
     const pm = T.match(/periodo[^\n]{0,30}?\b(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s*(\d{4})?\s*[-–\/]\s*(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})/i)
@@ -640,9 +647,10 @@ function parseBolletta(text){
   }
 
   // ---- contratto ----
-  const pod = T.match(/\bIT\s?\d{3}\s?E\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = pod[0].replace(/\s/g, "").toUpperCase();
+  const pod = T.match(/\b[I1l|]T\s?\d{3}\s?E\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = "IT" + pod[0].replace(/\s/g, "").toUpperCase().slice(2);
   const pdr = T.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i); if(pdr) r.pod = r.pod ? r.pod + " · PDR " + pdr[1] : pdr[1];
-  const cc = dopo(/codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n[°º]\s*cliente|id\s+cliente|codice\s+contratto/i, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
+  const kCli = /codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n\s?[°º®'’*o]?\s*cliente|id\s+cliente|codice\s+contratto/i;
+  const cc = dopo(kCli, /(?:^|[^\dA-Z])(\d{6,15})(?![\dA-Z])/i, 3) || dopo(kCli, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
   if(cc) r.codiceCliente = cc.v[1].trim();
   const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 2);
   if(ind){
@@ -668,10 +676,17 @@ function parseBolletta(text){
       const peso = /consum[oi]\s+(?:fatturat|totale|del\s+periodo|effettiv)|totale\s+consum/i.test(l) ? 2 : 1;
       if(!best || peso > best.peso) best = {v, peso};
     });
+    // "443 kWh" da solo, vicino a "Consumo del periodo" / "Consumi rilevati" (non annuo)
+    if(!best) righe.forEach((l, i) => {
+      const m = l.match(new RegExp("^" + conRx.source + "\\s*$", "i")); if(!m) return;
+      const vicino = [righe[i - 2], righe[i - 1], righe[i + 1]].filter(Boolean).join(" ");
+      if(!/consum[oi]\s+(?:del\s+periodo|fatturat|rilevat|effettiv|reali)/i.test(vicino) || /annu|12\s*mesi|medi/i.test([righe[i - 1], righe[i + 1]].filter(Boolean).join(" "))) return;
+      const v = num(m[1]); if(v > 0 && v < 100000 && !best) best = {v, peso:1};
+    });
     if(best){ r.consumo = best.v; r.unita = u; }
   }
-  if(/lettur[ae]\s+stimat|consumi?\s+stimat|stima\b/i.test(T) && !/lettur[ae]\s+(?:reali?|rilevat|effettiv)/i.test(T)) r.lettura = "stimata";
-  else if(/lettur[ae]\s+(?:reali?|rilevat|effettiv)|autolettura/i.test(T)) r.lettura = "reale";
+  if(/lettur[ae]\s+stimat|consumi?\s+stimat|stima\b/i.test(T) && !/lettur[ae]\s+(?:reali?|rilevat|effettiv)|consum[oi]\s+(?:reali|rilevat|effettiv)/i.test(T)) r.lettura = "stimata";
+  else if(/lettur[ae]\s+(?:reali?|rilevat|effettiv)|consum[oi]\s+(?:reali|rilevat|effettiv)|autolettura/i.test(T)) r.lettura = "reale";
 
   // ---- pagamento ----
   // Domiciliata solo se la bolletta lo dice chiaramente E non c'è un bollettino/avviso da pagare.
@@ -690,17 +705,23 @@ function parseBolletta(text){
 
   // scadenza: tra le date vicine alla parola "scadenza", la prima che non è del periodo né dell'emissione
   {
-    const KS = /scadenza(?:\s+(?:di\s+)?pagamento|\s+fattura|\s+bolletta)?|da\s+pagare\s+entro(?:\s+il)?|pagare\s+entro(?:\s+il)?|entro\s+il|scade\s+il|data\s+(?:di\s+)?scadenza|termine\s+di\s+pagamento/i;
+    const KS = /quando\s+s[ce]ade\s*\??|scadenza(?:\s+(?:di\s+)?pagamento|\s+fattura|\s+bolletta)?|da\s+pagare\s+entro(?:\s+il)?|pagare\s+entro(?:\s+il)?|entro\s+il|scade\s+il|data\s+(?:di\s+)?scadenza|termine\s+di\s+pagamento/i;
+    // "La tua offerta … scade il 31/03/2027": è la fine del contratto, non della bolletta
+    const nonPagamento = i => /offerta|contratto|tariffa|promozion|condizioni\s+economiche|prezzo\s+(?:fisso|bloccato)|bonus|carta|documento\s+d/i.test([righe[i - 2], righe[i - 1], righe[i]].filter(Boolean).join(" "));
     const escluse = new Set([r.periodoDa, r.periodoA, r.emessa].filter(Boolean));
     const cand = [];
     righe.forEach((l, i) => {
       const m = l.match(KS); if(!m) return;
+      const quando = /quando/i.test(m[0]);
+      if(!quando && /scade\s+il/i.test(m[0]) && nonPagamento(i)) return;
       const dopoK = tutteDate(l.slice(m.index + m[0].length)), primaK = tutteDate(l.slice(0, m.index));
-      [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK].forEach((ds, peso) => ds.forEach(d => cand.push({d, peso})));
+      [dopoK, tutteDate(righe[i + 1] || ""), tutteDate(righe[i + 2] || ""), primaK].forEach((ds, peso) => ds.forEach(d => cand.push({d, peso:quando ? peso - 10 : peso})));
     });
     // la data scritta subito dopo "entro il / scadenza" vale sempre; le altre solo se non sono del periodo o dell'emissione
-    const buona = cand.filter(c => (c.peso === 0 || !escluse.has(c.d)) && (!r.emessa || c.d >= r.emessa)).sort((a, b) => a.peso - b.peso)[0];
-    if(buona) r.scadenza = buona.d; else if(r.scadenza && escluse.has(r.scadenza)) r.scadenza = "";
+    // una bolletta si paga entro pochi mesi dall'emissione (o dalla fine del periodo)
+    const da = r.emessa || r.periodoDa, fino = r.emessa || r.periodoA, entro = d => (!da || d >= da) && (!fino || (new Date(d) - new Date(fino)) / 864e5 <= 120);
+    const buona = cand.filter(c => (c.peso <= 0 || !escluse.has(c.d)) && (!r.emessa || c.d >= r.emessa) && entro(c.d)).sort((a, b) => a.peso - b.peso)[0];
+    if(buona) r.scadenza = buona.d; else if(r.scadenza && (escluse.has(r.scadenza) || !entro(r.scadenza))) r.scadenza = "";
   }
   // prospetto delle rate del condominio (tabella con più condòmini): gli importi non si indovinano dal testo
   if(/prospetto\s+(?:delle\s+)?rate|piano\s+(?:delle\s+)?rate|riparto\s+rate|rate\s+preventivo/i.test(T) || (/condomin/i.test(T) && (T.match(/\b\d\s*[aª°à²³è]?\s*rata\b/gi) || []).length >= 3)){
@@ -1207,8 +1228,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.20";
+const VERSIONE = "v1.21";
 const CRONOLOGIA = [
+  {v:"v1.21", d:"21/11/2026", n:["Lettura sul telefono migliorata (bollette Enel): la scadenza è quella di «Quando scade?», non la fine dell'offerta; il periodo è quello della bolletta, non il consumo annuo.", "Letti anche numero e data della fattura elettronica, N° cliente, POD e consumo del periodo con «Consumi rilevati»."]},
   {v:"v1.20", d:"21/11/2026", n:["Quando salvi le rate del condominio compare un riquadro che dice per quale casa sono state salvate, e se qualcuna c'era già."]},
   {v:"v1.19", d:"21/11/2026", n:["Rate del condominio: valgono per la casa che scegli in Acquisisci (es. Casa mamma). Tocchi la sua riga nella tabellina, anche senza aver scritto il nome.", "Se come «Nome nel condominio» è scritto il nome del condominio invece della persona, l'app non lo usa e lo segnala."]},
   {v:"v1.18", d:"21/11/2026", n:["Bollini più chiari: c'è sempre la data di scadenza e sotto quanto manca (oggi, domani, tra 10 giorni, scaduta da…), con colori: rosso scaduta o oggi, arancio entro 7 giorni, azzurro più avanti, verde pagata.", "Per le rate del condominio sotto il nome si vede «4ª rata di 4»."]},
