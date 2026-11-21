@@ -1207,8 +1207,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.19";
+const VERSIONE = "v1.20";
 const CRONOLOGIA = [
+  {v:"v1.20", d:"21/11/2026", n:["Quando salvi le rate del condominio compare un riquadro che dice per quale casa sono state salvate, e se qualcuna c'era già."]},
   {v:"v1.19", d:"21/11/2026", n:["Rate del condominio: valgono per la casa che scegli in Acquisisci (es. Casa mamma). Tocchi la sua riga nella tabellina, anche senza aver scritto il nome.", "Se come «Nome nel condominio» è scritto il nome del condominio invece della persona, l'app non lo usa e lo segnala."]},
   {v:"v1.18", d:"21/11/2026", n:["Bollini più chiari: c'è sempre la data di scadenza e sotto quanto manca (oggi, domani, tra 10 giorni, scaduta da…), con colori: rosso scaduta o oggi, arancio entro 7 giorni, azzurro più avanti, verde pagata.", "Per le rate del condominio sotto il nome si vede «4ª rata di 4»."]},
   {v:"v1.17", d:"21/11/2026", n:["Rate del condominio: in fondo c'è «🗑️ Ricomincia da capo» per togliere le foto e ripartire."]},
@@ -2173,6 +2174,12 @@ function bindCardRate(){
   $("#rNomi").onclick = () => { draft.rate.stato = "nomi"; renderAcquisisci(); };
   $("#rSalva").onclick = salvaRate;
 }
+function avviso(msg){
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box"><div style="white-space:pre-line;font-size:16px;line-height:1.5;margin:4px 0 8px">${esc(msg)}</div><div class="btns"><button class="btn primary" data-r="1">OK</button></div></div>`;
+  m.onclick = e => { if(e.target === m || (e.target.dataset && e.target.dataset.r)) m.remove(); };
+  document.body.appendChild(m);
+}
 async function salvaRate(){
   leggiRate();
   const R = draft.rate, o = $("#rOut"), tutte = [];
@@ -2183,13 +2190,14 @@ async function salvaRate(){
   const b = $("#rSalva"); b.disabled = true;
   const me = io(), ora = new Date().toISOString(), totali = {};
   tutte.forEach(({h}) => totali[h.casa] = (totali[h.casa] || 0) + 1);
-  let fatte = 0, saltate = 0, sulTel = 0;
+  let fatte = 0, saltate = 0, sulTel = 0; const perCasa = {};
   for(const {h, x} of tutte){
     esito(o, null, `Salvo la rata ${fatte + saltate + 1} di ${tutte.length}…`);
     const n = Object.assign(newDraft(), {casa:h.casa, ente:R.condominio, tipo:"Condominio", importo:Number(x.importo), scadenza:x.scadenza,
       numero:`${x.numero}ª rata${h.rate.length ? " di " + h.rate.length : ""}`, periodoDa:R.gestioneDa || "", periodoA:R.gestioneA || "",
       stato:x.stato === "pag" ? "pag" : "da", pagataIl:x.pagataIl || "", pagataCon:x.pagataCon || "", note:`${x.numero}ª rata${h.nominativo ? " · " + h.nominativo : ""}`, datiAuto:true});
-    if(await doppione(n)){ saltate++; continue; }
+    const pc = perCasa[h.casa] = perCasa[h.casa] || {fatte:0, gia:0};
+    if(await doppione(n)){ saltate++; pc.gia++; continue; }
     if(me){ n.aggiuntoDa = me.nome; n.aggiuntoDaId = me.id; n.aggiuntoIl = ora; }
     const all = await allBollette(); let base = folderFor(n), c = base, k = 2;
     while(all.some(y => y.cartella.toLowerCase() === c.toLowerCase())) c = `${base} (${k++})`;
@@ -2197,12 +2205,14 @@ async function salvaRate(){
     n.pendingFiles = draft.pendingFiles.map((f, i) => ({name:(f.mime === "application/pdf" ? "prospetto_rate" + (i ? "_" + (i + 1) : "") + ".pdf" : `prospetto_rate_${i + 1}.${extOf(f.name) || "jpg"}`), mime:f.mime, data:f.data}));
     n.daCaricare = true;
     try{ if(!archivioPronto()) throw new Error("archivio non raggiungibile"); await writeToNas(n); }catch(e){ sulTel++; }
-    await putBolletta(n); fatte++;
+    await putBolletta(n); fatte++; pc.fatte++;
   }
   syncReminders();
   draft = null; lastText = ""; cancellaBozza();
-  toast(`✅ ${fatte} rate salvate` + (saltate ? `, ${saltate} erano già nell'archivio` : "") + (sulTel ? ` (${sulTel} sul telefono, da caricare)` : "") + ".");
   navStack = []; setView("scadenze");
+  // riepilogo chiaro: per quale casa sono state salvate (o se c'erano già)
+  const righe = Object.entries(perCasa).map(([c, v]) => `${casaInfo(c).icona || "🏠"} ${c}:\n` + (v.fatte ? `   ✅ ${v.fatte} ${v.fatte === 1 ? "rata salvata" : "rate salvate"}` : "") + (v.fatte && v.gia ? "\n" : "") + (v.gia ? `   ℹ️ ${v.gia} ${v.gia === 1 ? "era già" : "erano già"} nell'archivio (non doppiate)` : "")).join("\n\n");
+  avviso(`🏢 ${R.condominio}\n\n${righe}` + (sulTel ? `\n\n⏳ ${sulTel} sul telefono: verranno caricate sul NAS appena raggiungibile.` : ""));
 }
 
 /* =========================================================
