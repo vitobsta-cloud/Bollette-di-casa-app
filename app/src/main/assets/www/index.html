@@ -1259,8 +1259,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.26";
+const VERSIONE = "v1.27";
 const CRONOLOGIA = [
+  {v:"v1.27", d:"21/11/2026", n:["Messaggio di invito per i familiari più chiaro."]},
   {v:"v1.26", d:"21/11/2026", n:["Grafici e spesa dell'anno: le rate del condominio contano nel mese della loro scadenza (prima finivano tutte a febbraio 2027, fine della gestione). Vale anche per le rate già salvate: non serve rifare niente.", "Per le bollette con periodo lungo (annuali) conta la scadenza."]},
   {v:"v1.25", d:"21/11/2026", n:["Lettura: date scritte attaccate (es. «14 Marzo2026»), indirizzo di fornitura anche se è qualche riga più sotto, consumo «29mc» letto anche quando sotto c'è il consumo annuo."]},
   {v:"v1.24", d:"21/11/2026", n:["In Scadenze il pulsante sotto ogni bolletta ora dice «💶 L'ho pagata: segnala» (prima «✅ Pagata» sembrava già pagata). La spunta verde ✅ compare solo sulle bollette davvero pagate."]},
@@ -2875,7 +2876,7 @@ function renderImpUtente(id){
       <div id="uOut"></div></div><div id="uInvBox"></div>`;
   const mostraInvito = utente => {
     const cod = codiceInvito(utente);
-    const msg = `Ciao ${utente.nome}! Ti invito nell'archivio Bollette di casa di casa.\n1) Installa l'app: https://github.com/vitobsta-cloud/Bollette-di-casa-app/releases/latest/download/BolletteDiCasa.apk\n2) Aprila, tocca "Ho un invito", incolla tutto questo messaggio e tocca Entra.\n\n${cod}`;
+    const msg = `Ciao ${utente.nome}! Ti invito nell'archivio «Bollette di casa».\n1) Installa l'app: https://github.com/vitobsta-cloud/Bollette-di-casa-app/releases/latest/download/BolletteDiCasa.apk\n2) Aprila, tocca "Ho un invito", incolla tutto questo messaggio e tocca Entra.\n\n${cod}`;
     $("#uInvBox").innerHTML = `<div class="card"><h2>📨 Invito per ${esc(utente.nome)}</h2>
       <p class="muted">Mandalo <b>solo a ${esc(utente.nome)}</b>, non in un gruppo: contiene l'accesso al NAS.</p>
       <div class="btns"><a class="btn primary" id="uWa" href="https://wa.me/?text=${encodeURIComponent(msg)}">📲 Manda con WhatsApp</a><button class="btn" id="uCopia">📋 Copia il messaggio</button></div>
