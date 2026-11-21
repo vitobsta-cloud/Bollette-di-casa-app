@@ -1196,8 +1196,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.16";
+const VERSIONE = "v1.17";
 const CRONOLOGIA = [
+  {v:"v1.17", d:"21/11/2026", n:["Rate del condominio: in fondo c'è «🗑️ Ricomincia da capo» per togliere le foto e ripartire."]},
   {v:"v1.16", d:"21/11/2026", n:["Rate del condominio più chiare: le righe del foglio sono in una tabellina con le date in alto, tocchi quella con i tuoi importi.", "Ogni rata ha i due pulsanti «Da pagare» / «Già pagata», come nel modulo: si vede subito com'è.", "L'importo si scrive con la virgola (es. 159,67).", "«Rileggi» funziona anche dopo un aggiornamento dell'app."]},
   {v:"v1.15", d:"21/11/2026", n:["Rate del condominio: il telefono legge da solo la tabella. Se Google non risponde, tocchi la tua riga nell'elenco e le 4 rate si compilano con le date.", "Le foto del prospetto vanno a Google più leggere e con più tempo per rispondere.", "Se gli importi di Google non coincidono con quelli letti dal telefono, l'app lo segnala."]},
   {v:"v1.14", d:"21/11/2026", n:["In Acquisisci c'è «🖼️ Scegli una o più foto»: prendi dalla galleria le foto già fatte, anche più di una insieme."]},
@@ -2079,7 +2080,8 @@ function cardRate(){
   if(R.stato === "nomi" || !nomi.length) return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate del condominio</h2>
     <p class="muted">Per trovare le tue righe nella tabella scrivi, per ogni casa che è in questo condominio, il <b>nome come è scritto nel prospetto</b> (es. TELAROLI SILVIA). Lascia vuoto per le case che non c'entrano. Lo scrivi una volta sola.</p>
     ${caseCasa().map((c, i) => `<label>${esc((c.icona || "🏠") + " " + c.nome)}</label><input data-nc="${i}" value="${esc(c.nomeCond || "")}" placeholder="nome nel condominio" autocapitalize="characters" autocomplete="off">`).join("")}
-    <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div><div id="rOut"></div></div>`;
+    <div class="btns"><button class="btn primary" id="rCerca">🔎 Cerca le mie rate</button></div>
+    <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
   if(R.stato === "cerco") return `<div class="card" id="cardRate"><h2>🏢 Prospetto delle rate</h2><div class="status"><span class="spinner"></span>Cerco le tue righe nella tabella…</div></div>`;
   const riga = (h, i) => `<div style="margin-top:12px"><b>${esc((casaInfo(h.casa).icona || "🏠") + " " + h.casa)}</b> <span class="muted">${h.nominativo ? "· riga «" + esc(h.nominativo) + "»" : h.scegli ? "" : "· riga non trovata: scrivi le rate a mano"}</span>
       ${h.dubbio ? `<div class="g-nota att" style="margin-top:6px">⚠️ Questi importi non coincidono con quelli letti dal telefono: controllali bene sul foglio.</div>` : ""}
@@ -2100,7 +2102,8 @@ function cardRate(){
     <label>Condominio</label><input id="rCond" value="${esc(R.condominio)}">
     ${R.righe.map(riga).join("")}
     <div class="dove">📁 Ogni rata va in: <b>Casa / ${esc(safeName(R.condominio || "Condominio"))} - Condominio / data scad. importo</b>, con la foto del prospetto.</div>
-    <div class="btns"><button class="btn" id="rRiprova">🔄 Rileggi</button><button class="btn" id="rNomi">✏️ Nomi</button><button class="btn primary" id="rSalva">💾 Salva ${n} rate</button></div><div id="rOut"></div></div>`;
+    <div class="btns"><button class="btn" id="rRiprova">🔄 Rileggi</button><button class="btn" id="rNomi">✏️ Nomi</button><button class="btn primary" id="rSalva">💾 Salva ${n} rate</button></div>
+    <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
 }
 function leggiRate(){
   const R = draft.rate; if(!R || R.stato !== "controllo") return;
@@ -2110,6 +2113,7 @@ function leggiRate(){
 }
 function bindCardRate(){
   const R = draft.rate, ij = v => v.split("-").map(Number);
+  if($("#rDaCapo")) $("#rDaCapo").onclick = async () => { if(await conferma("Togliere le foto e ricominciare da capo? Non viene salvato niente.", "Ricomincia")){ draft = newDraft(); lastText = ""; dubbiLettura = {}; cancellaBozza(); renderAcquisisci(); } };
   if($("#rCerca")) $("#rCerca").onclick = async () => {
     const l = caseCasa().map((c, i) => Object.assign({}, c, {nomeCond:(document.querySelector(`[data-nc="${i}"]`).value || "").trim().toUpperCase()}));
     if(!l.some(c => c.nomeCond)){ esito($("#rOut"), false, "Scrivi almeno un nome."); return; }
