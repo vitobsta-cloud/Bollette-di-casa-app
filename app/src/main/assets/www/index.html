@@ -449,6 +449,7 @@ const piuCase = () => caseCasa().length > 1;
 const casaInfo = nome => caseCasa().find(c => c.nome === nome) || {nome:nome || "", icona:"🏠", indirizzo:""};
 const ICONE_CASA = ["🏠","👵","👴","🏡","🏖️","⛰️","🏢","🏬","🌳","🚗"];
 const MODI_PAGAMENTO = ["Contanti", "Bancomat", "Carta di credito", "Home banking", "PagoPA", "Bollettino postale", "Bonifico", "Altro"];
+const ICONE_PAGAMENTO = {"Contanti":["💶","#dcfce7"], "Bancomat":["🏧","#dbeafe"], "Carta di credito":["💳","#ede9fe"], "Home banking":["🏦","#e0f2fe"], "PagoPA":["🅿️","#fef3c7"], "Bollettino postale":["📮","#fee2e2"], "Bonifico":["🔁","#ccfbf1"], "Altro":["📝","#f1f5f9"]};
 function newDraft(){
   return {id:"", cartella:"", casa: caseCasa().length === 1 ? caseCasa()[0].nome : "", ente:"", tipo:"", importo:"", scadenza:"", emessa:"", numero:"", periodoDa:"", periodoA:"",
     stato:"da", pagataIl:"", pagataCon:"", codiceCliente:"", pod:"", indirizzo:"", consumo:"", unita:"", lettura:"", note:"",
@@ -1163,8 +1164,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.9";
+const VERSIONE = "v1.10";
 const CRONOLOGIA = [
+  {v:"v1.10", d:"21/11/2026", n:[
+    "«Già pagata» e «Segna come pagata»: menu con un riquadro e il suo simbolo per ogni modo di pagamento (💶 Contanti, 🏧 Bancomat, 💳 Carta, 🏦 Home banking…); un tocco e fatto",
+    "Lettura bollette: spiegato come fare una chiave Google solo per Bollette, in un progetto nuovo"
+  ]},
   {v:"v1.9", d:"21/11/2026", n:[
     "«Verifica» della chiave Google: mostra passo passo cosa sta provando e non supera mai il minuto e mezzo; se Google non risponde si ferma subito"
   ]},
@@ -1814,24 +1819,18 @@ function dialogoSposta(a){
   });
 }
 function scegliPagamento(data, modo, ente, importo){
+  // menu nello stile dell'app: un riquadro con il suo simbolo per ogni modo di pagamento; un tocco e fatto
   return new Promise(res => {
     const m = document.createElement("div"); m.className = "modal";
-    const ultimo = MODI_PAGAMENTO.includes(modo) ? modo : MODI_PAGAMENTO.includes(settings().ultimoModo) ? settings().ultimoModo : "";
-    m.innerHTML = `<div class="box"><h2>✅ Pagata</h2>${ente || importo ? `<p class="muted" style="margin:2px 0 6px">${esc(ente || "")}${importo ? " · " + esc(euro(importo)) : ""}</p>` : ""}
-      <label>Pagata il</label><input type="date" id="pgData" value="${esc(data || todayISO())}">
-      <label style="margin-top:12px">Come l'hai pagata?</label><div class="seg" id="pgModo">${MODI_PAGAMENTO.map(x => `<button data-m="${esc(x)}"${x === ultimo ? ' class="on"' : ""}>${esc(x)}</button>`).join("")}</div>
-      <div class="btns"><button class="btn" id="pgNo">Annulla</button><button class="btn primary" id="pgOk" style="background:var(--ok);border-color:var(--ok)">✅ Conferma</button></div></div>`;
+    m.innerHTML = `<div class="box"><h2>Come l'hai pagata?</h2>
+      <p class="muted" style="margin:2px 0 4px">${esc(ente || "")}${importo ? " · " + esc(euro(importo)) : ""} · pagata il <input type="date" id="pgData" value="${esc(data || todayISO())}" style="width:auto;display:inline-block;padding:4px 6px;font-size:14px"></p>
+      ${MODI_PAGAMENTO.map(x => { const [ic, bg] = ICONE_PAGAMENTO[x] || ["💶", "#f1f5f9"]; return `<button class="bigpick" data-m="${esc(x)}"${x === modo ? ' style="border-color:#1a1a1a;box-shadow:inset 0 0 0 1px #1a1a1a"' : ""}><span class="ic" style="background:${bg}">${ic}</span><span class="t1">${esc(x)}</span></button>`; }).join("")}
+      <div class="btns"><button class="btn" id="pgNo">Annulla</button></div></div>`;
     document.body.appendChild(m);
-    m.querySelectorAll("#pgModo button").forEach(b => b.onclick = () => { m.querySelectorAll("#pgModo button").forEach(x => x.classList.remove("on")); b.classList.add("on"); });
     const chiudi = v => { m.remove(); res(v); };
     m.onclick = e => { if(e.target === m) chiudi(null); };
     m.querySelector("#pgNo").onclick = () => chiudi(null);
-    m.querySelector("#pgOk").onclick = () => {
-      const sel = m.querySelector("#pgModo .on");
-      if(!sel){ toast("Tocca come l'hai pagata (es. Contanti).", true); return; }
-      saveSettings({ultimoModo:sel.dataset.m});
-      chiudi({data:m.querySelector("#pgData").value || todayISO(), modo:sel.dataset.m});
-    };
+    m.querySelectorAll("[data-m]").forEach(b => b.onclick = () => { saveSettings({ultimoModo:b.dataset.m}); chiudi({data:m.querySelector("#pgData").value || todayISO(), modo:b.dataset.m}); });
   });
 }
 async function dialogoPagata(a){
@@ -2199,8 +2198,8 @@ function renderImpLett(){
     </div>
     ${!adm ? `<div class="card"><h2>🌐 Lettura online gratuita</h2><p class="muted">${s.geminiKey ? "Attiva: la chiave l'ha condivisa l'amministratore di casa." : "Non attiva: l'amministratore di casa non ha ancora inserito la chiave di Google."}</p></div>` : `<div class="card">
       <h2>🌐 Controllo online gratuito (Google)</h2>
-      <p class="muted">Con la chiave gratuita di Google ogni bolletta viene letta <b>anche online</b> e i dati vengono incrociati: se importo o scadenza non coincidono, il campo diventa <b>giallo</b> e lo controlli tu. È la stessa chiave di Garanzie & Scontrini: puoi usare quella.</p>
-      <p class="muted"><b>Come avere la chiave (una volta sola):</b><br>1. Tocca il link qui sotto ed entra con il tuo account Google.<br>2. Tocca <b>Create API key</b> e copia la chiave.<br>3. Incollala qui sotto e tocca Salva.</p>
+      <p class="muted">Con la chiave gratuita di Google ogni bolletta viene letta <b>anche online</b> e i dati vengono incrociati: se importo o scadenza non coincidono, il campo diventa <b>giallo</b> e lo controlli tu. Meglio una chiave <b>solo per Bollette</b>, creata in un <b>progetto nuovo</b> (Create API key → Create API key in new project): così il limite gratuito di Google non viene consumato da Garanzie & Scontrini.</p>
+      <p class="muted"><b>Come avere la chiave (una volta sola):</b><br>1. Tocca il link qui sotto ed entra con il tuo account Google.<br>2. Tocca <b>Create API key</b> → <b>Create API key in new project</b>, e copia la chiave.<br>3. Incollala qui sotto e tocca Salva.</p>
       <p><a href="https://aistudio.google.com/apikey">👉 Apri aistudio.google.com/apikey</a></p>
       <label>Chiave Google (gratuita)</label><input id="gKey" type="password" value="${esc(s.geminiKey || "")}" placeholder="AIza…" autocomplete="off" autocapitalize="off">
       <label style="display:flex;gap:10px;align-items:center;color:var(--text);font-size:14.5px;margin-top:6px"><input type="checkbox" id="gShow" style="width:auto;margin:0"> Mostra la chiave</label>
