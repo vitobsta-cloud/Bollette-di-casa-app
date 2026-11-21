@@ -1254,8 +1254,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.22";
+const VERSIONE = "v1.23";
 const CRONOLOGIA = [
+  {v:"v1.23", d:"21/11/2026", n:["In Acquisisci, sotto «Leggi di nuovo», c'è «📋 Incolla il testo copiato»: puoi incollare il testo estratto dalla galleria Xiaomi e l'app legge quello."]},
   {v:"v1.22", d:"21/11/2026", n:["Lettura sul telefono: riconosce A2A Ciclo Idrico (acqua) e non la scambia più per luce.", "Legge la scadenza nei riquadri «Entro quando?» anche se giorno, mese e anno sono su tre righe (09 / Aprile / 2026).", "Legge il codice POD dell'acqua (solo numeri) e il consumo in metri cubi."]},
   {v:"v1.21", d:"21/11/2026", n:["Lettura sul telefono migliorata (bollette Enel): la scadenza è quella di «Quando scade?», non la fine dell'offerta; il periodo è quello della bolletta, non il consumo annuo.", "Letti anche numero e data della fattura elettronica, N° cliente, POD e consumo del periodo con «Consumi rilevati»."]},
   {v:"v1.20", d:"21/11/2026", n:["Quando salvi le rate del condominio compare un riquadro che dice per quale casa sono state salvate, e se qualcuna c'era già."]},
@@ -1417,7 +1418,8 @@ async function renderAcquisisci(edit){
         <p class="muted" style="margin-top:12px">📨 <b>Dall'email è ancora più facile:</b> apri l'allegato PDF, tocca <b>Condividi</b> e scegli <b>Bollette</b>. La bolletta arriva qui da sola.</p>`
       : `<div class="thumbs" id="thumbs"></div>
         <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button><button class="btn" id="bGal">🖼️ Dalla galleria</button></div>
-        <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>`}
+        <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>
+        <div class="btns"><button class="btn" id="bIncolla">📋 Incolla il testo copiato (es. dalla galleria Xiaomi)</button></div>`}
       <div class="status" id="leggiStatus"></div>
       <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
     </div>
@@ -1497,6 +1499,7 @@ async function renderAcquisisci(edit){
   $("#bFile").onclick = () => $("#fileInput").click();
   if($("#bGal")) $("#bGal").onclick = () => galInput().click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
+  if($("#bIncolla")) $("#bIncolla").onclick = incollaTesto;
   if($("#bCopiaTesto")) $("#bCopiaTesto").onclick = async () => { try{ await navigator.clipboard.writeText(lastText); toast("Testo copiato: incollalo nella chat."); }catch(e){ toast("Tieni premuto sul testo per copiarlo.", true); } };
   $("#view").addEventListener("input", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
   $("#view").addEventListener("change", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
@@ -1640,22 +1643,39 @@ async function perGoogle(docs){
     return [{name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.8).split(",")[1]}];
   }catch(e){ return [f]; }
 }
-async function doLeggi(){
+/* Testo copiato da un'altra app (es. "Estrai testo" della galleria Xiaomi): l'app lo legge al posto del suo */
+function incollaTesto(){
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box"><h3 style="margin:0 0 6px">📋 Incolla il testo</h3>
+    <p class="muted" style="margin:0 0 8px">1. Nella galleria apri la foto della bolletta e usa <b>Estrai testo → Copia</b>.<br>2. Torna qui, <b>tieni il dito</b> nel riquadro e tocca <b>Incolla</b>.</p>
+    <textarea id="txIncolla" rows="9" style="width:100%;font-size:14px" placeholder="Tieni il dito qui e tocca «Incolla»"></textarea>
+    <div class="btns"><button class="btn" data-x="1">Annulla</button><button class="btn primary" id="txLeggi">🔎 Leggi questo testo</button></div></div>`;
+  document.body.appendChild(m);
+  m.onclick = e => { if(e.target === m || (e.target.dataset && e.target.dataset.x)) m.remove(); };
+  try{ if(navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(t => { if(t && !$("#txIncolla").value) $("#txIncolla").value = t; }).catch(() => {}); }catch(e){}
+  $("#txLeggi").onclick = () => {
+    const t = $("#txIncolla").value.trim();
+    if(t.length < 20){ toast("Il riquadro è vuoto: incolla prima il testo.", true); return; }
+    m.remove(); doLeggi(t);
+  };
+}
+async function doLeggi(testoIncollato){
+  if(typeof testoIncollato !== "string") testoIncollato = "";
   const giaSalvati = documenti(draft);
-  if(!draft.pendingFiles.length && !(draft._edit && giaSalvati.length)){ toast("Prima scegli il PDF o fai una foto.", true); return; }
+  if(!testoIncollato && !draft.pendingFiles.length && !(draft._edit && giaSalvati.length)){ toast("Prima scegli il PDF o fai una foto.", true); return; }
   readForm();
   const stEl = $("#leggiStatus"), msg = t => { stEl.innerHTML = `<span class="spinner"></span>${esc(t)}`; };
   document.querySelectorAll("#bLeggi").forEach(b => b.disabled = true);
   msg("Leggo la bolletta…");
   try{
     let docs = draft.pendingFiles;
-    if(!docs.length){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
-    lastText = await testoDocumenti(docs, msg); draft._testo = lastText;
+    if(!docs.length && !testoIncollato){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
+    lastText = testoIncollato || await testoDocumenti(docs, msg); draft._testo = lastText;
     let r = parseBolletta(lastText);
     // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
     if(r.prospettoRate && !draft._edit){ await avviaRate(docs, msg); return; }
     dubbiLettura = {}; modoLettura = "telefono";
-    if(settings().geminiKey && settings().incrocio !== false){
+    if(docs.length && settings().geminiKey && settings().incrocio !== false){
       msg("Letta sul telefono ✓ · controllo anche online…");
       try{
         const on = await Promise.race([geminiRead(await perGoogle(docs)), new Promise((_, no) => setTimeout(() => no(new Error("Google non ha risposto in tempo")), 75000))]);
@@ -2657,6 +2677,13 @@ function renderGuida(){
     ${passo(4, "L'app legge la bolletta in pochi secondi. Controlla i dati e tocca <b>💾 Salva</b>. Alla domanda <b>«Vuoi stampare la scheda?»</b> rispondi <b>🖨️ Stampa</b> oppure <b>Annulla</b>.",
       schermo("Acquisisci", `<div class="g-card"><div class="g-row">${btn("Svuota")}${btn("🖨️ Stampa")}${btn("💾 Salva", true, true)}</div></div>`))}
     ${nota("Se l'app si chiude prima di salvare, la bolletta non si perde: riaprendo Acquisisci la ritrovi.")}`),
+
+  cap("incolla", "📋", "Leggere con il testo della galleria Xiaomi", `
+    <p>Se la galleria del telefono sa estrarre il testo da una foto (Xiaomi: <b>Estrai testo</b>), puoi dare quel testo all'app.</p>
+    ${passo(1, "In <b>Acquisisci</b> aggiungi la foto della bolletta come sempre (serve per l'archivio).")}
+    ${passo(2, "Nella <b>galleria</b> apri la stessa foto, tocca <b>Estrai testo</b> e poi <b>Copia</b> (tutto il testo).")}
+    ${passo(3, "Torna nell'app e tocca <b>📋 Incolla il testo copiato</b> (sotto «Leggi di nuovo»).")}
+    ${passo(4, "Tieni il dito nel riquadro, tocca <b>Incolla</b> e poi <b>🔎 Leggi questo testo</b>. Poi controlla i dati come sempre.")}`),
 
   cap("controllo", "✅", "Controllare i dati letti", `
     ${passo(1, "Guarda soprattutto <b>ente</b>, <b>importo</b> e <b>scadenza</b>: sono quelli che servono per gli avvisi.",
