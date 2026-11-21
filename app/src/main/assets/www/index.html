@@ -1080,8 +1080,12 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.1";
+const VERSIONE = "v1.2";
 const CRONOLOGIA = [
+  {v:"v1.2", d:"21/11/2026", n:[
+    "Una bolletta letta parte sempre «da pagare»: l'app non sceglie più da sola «Domiciliata», al massimo lo suggerisce",
+    "Lettura online: più tempo per rispondere quando le foto sono più di una"
+  ]},
   {v:"v1.1", d:"21/11/2026", n:[
     "Domiciliazione più prudente: se c'è il bollettino o il codice PagoPA la bolletta resta «da pagare»; se l'app non è sicura lo scrive e lascia decidere a te"
   ]},
@@ -1323,7 +1327,7 @@ async function doLeggi(){
     if(settings().geminiKey && settings().incrocio !== false){
       msg("Letta sul telefono ✓ · controllo anche online…");
       try{
-        const on = await Promise.race([geminiRead(docs.slice(0, 3)), new Promise((_, no) => setTimeout(() => no(new Error("tempo scaduto")), 40000))]);
+        const on = await Promise.race([geminiRead(docs.slice(0, 3)), new Promise((_, no) => setTimeout(() => no(new Error("Google non ha risposto in tempo")), 75000))]);
         const x = incrocia(r, on); r = x.r; dubbiLettura = x.dubbi; modoLettura = "incrocio";
       }catch(e){ modoLettura = "solo telefono: online non riuscito – " + String(e.message || e).split("\n")[0].slice(0, 140); }
     }
@@ -1333,8 +1337,8 @@ async function doLeggi(){
       if(vuoto(r[k]) || (draft._edit && !vuoto(draft[k]))) continue;
       draft[k] = r[k]; trovati.push(k);
     }
-    if(r.stato === "dom" && !draft._edit && draft.stato === "da") draft.stato = "dom";
-    const forseDom = !!r.forseDom && draft.stato !== "dom";
+    // la domiciliazione non viene MAI scelta da sola: la bolletta resta "da pagare" e al massimo compare un suggerimento
+    const forseDom = (r.stato === "dom" || !!r.forseDom) && draft.stato !== "dom" && !draft._edit;
     if(!draft._edit) draft.datiAuto = true;
     await renderAcquisisci();
     const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && "scadenza"].filter(Boolean);
@@ -1342,8 +1346,7 @@ async function doLeggi(){
     $("#leggiStatus").innerHTML = (trovati.length ? "✅ Dati compilati" + (modoLettura === "incrocio" ? " (telefono + online)" : modoLettura !== "telefono" ? " (" + esc(modoLettura) + ")" : "") + ": controllali prima di salvare." : "⚠️ Non sono riuscito a leggere i dati: scrivili tu.")
       + (nd ? ` <b>Controlla i campi in giallo</b>: le due letture non erano d'accordo.` : "")
       + (manca.length && trovati.length ? `<div class="g-nota att" style="margin-top:8px">⚠️ Non ho trovato: <b>${manca.join(", ")}</b>. Scrivilo tu guardando la bolletta.</div>` : "")
-      + (draft.stato === "dom" ? `<div class="g-nota" style="margin-top:8px">🏦 La bolletta dice che è <b>domiciliata</b>: si paga da sola sul conto. Se non è così tocca «Da pagare».</div>` : "")
-      + (forseDom ? `<div class="g-nota" style="margin-top:8px">🏦 La bolletta parla di addebito sul conto, ma non sono sicuro che sia <b>domiciliata</b>: l'ho lasciata <b>da pagare</b>. Se invece si paga da sola, tocca «Domiciliata».</div>` : "")
+      + (forseDom ? `<div class="g-nota" style="margin-top:8px">💡 Nella bolletta c'è una frase sull'addebito in conto. L'ho lasciata <b>da pagare</b>. Solo se sei sicuro che si paga da sola, tocca «Domiciliata».</div>` : "")
       + (modoLettura.startsWith("solo telefono") ? ` <button class="btn small" id="bRiprovaOn">🔄 Riprova online</button>` : "");
     if($("#bRiprovaOn")) $("#bRiprovaOn").onclick = () => doLeggi();
   }catch(e){
@@ -1958,7 +1961,7 @@ function renderGuida(){
     ${passo(1, "Guarda soprattutto <b>ente</b>, <b>importo</b> e <b>scadenza</b>: sono quelli che servono per gli avvisi.",
       schermo("Acquisisci", `<div class="g-card"><b>2. Controlla i dati</b><div class="g-grid">${campo("Ente", "Enel Energia")}${campo("Tipo", "Luce")}${campo("Importo (€)", "87,40")}${campo("Scadenza", "05/12/2026", true, true)}</div><small class="g-mut">⚠️ Sul telefono avevo letto 15/12/2026</small></div>`))}
     ${passo(2, "Un campo <b>giallo</b> vuol dire che la lettura del telefono e quella online non erano d'accordo: sotto c'è scritto cosa aveva letto il telefono. Guarda la bolletta e correggi se serve.")}
-    ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto) o <b>Già pagata</b>. Se la bolletta dice che è domiciliata, l'app lo sceglie da sola.",
+    ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto) o <b>Già pagata</b>. L'app parte sempre da «Da pagare»: «Domiciliata» lo scegli tu.",
       `<div class="g-row"><span class="g-radio on g-tocca">Da pagare</span><span class="g-radio">Domiciliata</span><span class="g-radio">Già pagata</span></div>`)}
     ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>.")}
     ${nota("Se la stessa bolletta è già nell'archivio, l'app te lo dice prima di salvarla due volte.")}`),
