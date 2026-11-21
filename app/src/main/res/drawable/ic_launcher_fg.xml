@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bolletta bianca con € e spunta verde di pagamento (logo A) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <group android:scaleX="0.9" android:scaleY="0.9" android:translateX="4.5" android:translateY="9">
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M30,20h36v56l-6,-4 -6,4 -6,-4 -6,4 -6,-4 -6,4z" />
+        <path android:fillColor="#99F6E4" android:pathData="M36,28h24v3h-24z" />
+        <path android:fillColor="#99F6E4" android:pathData="M36,35h16v3h-16z" />
+        <path android:strokeColor="#0F766E" android:strokeWidth="3" android:strokeLineCap="round"
+            android:pathData="M54.5,47A8.5,8.5 0,1 0,54.5 61" />
+        <path android:strokeColor="#0F766E" android:strokeWidth="2.4" android:strokeLineCap="round"
+            android:pathData="M39,52h11M39,57h11" />
+        <path android:fillColor="#16A34A" android:strokeColor="#0F766E" android:strokeWidth="3"
+            android:pathData="M55,66a13,13 0,1 0,26 0a13,13 0,1 0,-26 0z" />
+        <path android:strokeColor="#FFFFFF" android:strokeWidth="3.2" android:strokeLineCap="round"
+            android:strokeLineJoin="round" android:pathData="M62,66l4,4 8,-8" />
+    </group>
+</vector>

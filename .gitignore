@@ -1,0 +1,6 @@
+app/firma.keystore
+*.keystore
+*.jks
+build/
+.gradle/
+local.properties
