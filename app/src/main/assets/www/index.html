@@ -529,7 +529,7 @@ const ENTI_NOTI = [
 const num = s => { const t = String(s).replace(/\s/g, "").replace(/\.(?=\d{3}(\D|$))/g, "").replace(",", "."); const v = parseFloat(t); return isFinite(v) ? v : NaN; };
 const IMPORTO = "(?:€|eur(?:o)?)?\\s*(-?\\d{1,3}(?:\\.\\d{3})*,\\d{2}|-?\\d+[.,]\\d{2})\\s*(?:€|eur(?:o)?)?";
 const MESI_RX = {gennaio:1,febbraio:2,marzo:3,aprile:4,maggio:5,giugno:6,luglio:7,agosto:8,settembre:9,ottobre:10,novembre:11,dicembre:12,gen:1,feb:2,mar:3,apr:4,mag:5,giu:6,lug:7,ago:8,set:9,sett:9,ott:10,nov:11,dic:12};
-const DATA_RX = "(\\d{1,2})\\s?[\\/.\\-]\\s?(\\d{1,2})\\s?[\\/.\\-]\\s?(\\d{4}|\\d{2})(?!\\d)|(\\d{1,2})\\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|sett?|ott|nov|dic)\\.?\\s+(\\d{4})";
+const DATA_RX = "(\\d{1,2})\\s?[\\/.\\-]\\s?(\\d{1,2})\\s?[\\/.\\-]\\s?(\\d{4}|\\d{2})(?!\\d)|(\\d{1,2})\\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|sett?|ott|nov|dic)\\.?\\s*(\\d{4})";
 function dataDa(m){
   if(!m) return "";
   let d, mo, y;
@@ -665,7 +665,7 @@ function parseBolletta(text){
   const kCli = /codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n\s?[°º®'’*o]?\s*cliente|id\s+cliente|codice\s+contratto/i;
   const cc = dopo(kCli, /(?:^|[^\dA-Z])(\d{6,15})(?![\dA-Z])/i, 3) || dopo(kCli, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
   if(cc) r.codiceCliente = cc.v[1].trim();
-  const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 2);
+  const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 6);
   if(ind){
     // solo la colonna dell'indirizzo: nella riga originale le colonne sono separate da due o più spazi
     const g = grezze[ind.i] || "", inizio = g.toLowerCase().indexOf(ind.v[1].slice(0, 6).toLowerCase());
@@ -693,7 +693,7 @@ function parseBolletta(text){
     if(!best) righe.forEach((l, i) => {
       const m = l.match(new RegExp("^" + conRx.source + "\\s*$", "i")); if(!m) return;
       const vicino = [righe[i - 2], righe[i - 1], righe[i + 1]].filter(Boolean).join(" ");
-      if(!/consum[oi]\s+(?:del\s+periodo|fatturat|rilevat|effettiv|reali)/i.test(vicino) || /annu|12\s*mesi|medi/i.test([righe[i - 1], righe[i + 1]].filter(Boolean).join(" "))) return;
+      if(!/consum[oi]\s+(?:del\s+periodo|fatturat|rilevat|effettiv|reali)/i.test(vicino) || /annu|12\s*mesi|medi/i.test(righe[i - 1] || "")) return;
       const v = num(m[1]); if(v > 0 && v < 100000 && !best) best = {v, peso:1};
     });
     if(best){ r.consumo = best.v; r.unita = u; }
@@ -1254,8 +1254,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.24";
+const VERSIONE = "v1.25";
 const CRONOLOGIA = [
+  {v:"v1.25", d:"21/11/2026", n:["Lettura: date scritte attaccate (es. «14 Marzo2026»), indirizzo di fornitura anche se è qualche riga più sotto, consumo «29mc» letto anche quando sotto c'è il consumo annuo."]},
   {v:"v1.24", d:"21/11/2026", n:["In Scadenze il pulsante sotto ogni bolletta ora dice «💶 L'ho pagata: segnala» (prima «✅ Pagata» sembrava già pagata). La spunta verde ✅ compare solo sulle bollette davvero pagate."]},
   {v:"v1.23", d:"21/11/2026", n:["In Acquisisci, sotto «Leggi di nuovo», c'è «📋 Incolla il testo copiato»: puoi incollare il testo estratto dalla galleria Xiaomi e l'app legge quello."]},
   {v:"v1.22", d:"21/11/2026", n:["Lettura sul telefono: riconosce A2A Ciclo Idrico (acqua) e non la scambia più per luce.", "Legge la scadenza nei riquadri «Entro quando?» anche se giorno, mese e anno sono su tre righe (09 / Aprile / 2026).", "Legge il codice POD dell'acqua (solo numeri) e il consumo in metri cubi."]},
