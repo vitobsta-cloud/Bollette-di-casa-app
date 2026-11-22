@@ -838,17 +838,40 @@ async function primaPaginaJpeg(b64){
   return c.toDataURL("image/jpeg", 0.85);
 }
 /* Testo di tutti i documenti: dai PDF veri si legge il testo, le foto e i PDF scansionati passano dall'OCR del telefono */
-async function testoDocumenti(docs, avanza){
-  const testi = [];
-  for(const f of docs){
-    let t = "";
-    if(f.mime === "application/pdf"){
-      try{ t = await testoPdf(f.data); }catch(e){ t = ""; }
-      if(t.replace(/\s/g, "").length < 120 && A){ avanza && avanza("PDF scansionato: lo leggo come una foto…"); t = await call("ocr", f.data, f.mime); }
-    }else if(A) t = await call("ocr", f.data, f.mime);
-    testi.push(t);
+// testo "per righe" (come uno scontrino), tenuto da parte per confrontarlo con quello riquadro per riquadro
+let testoRighe = "";
+async function ocrFoto(f){
+  // app nuova: testo riquadro per riquadro + per righe; app vecchia: solo per righe
+  if(A && A.ocrDati){
+    try{ const o = JSON.parse(await call("ocrDati", f.data, f.mime)); return {blocchi:o.blocchi || "", righe:o.righe || ""}; }catch(e){}
   }
-  return testi.join("\n\n");
+  const t = A ? await call("ocr", f.data, f.mime) : "";
+  return {blocchi:"", righe:t};
+}
+async function testoDocumenti(docs, avanza){
+  const blocchi = [], righe = [];
+  for(const f of docs){
+    if(f.mime === "application/pdf"){
+      let t = "";
+      try{ t = await testoPdf(f.data); }catch(e){ t = ""; }
+      if(t.replace(/\s/g, "").length < 120 && A){ avanza && avanza("PDF scansionato: lo leggo come una foto…"); const o = await ocrFoto(f); blocchi.push(o.blocchi || o.righe); righe.push(o.righe); }
+      else{ blocchi.push(t); righe.push(""); }
+    }else if(A){ const o = await ocrFoto(f); blocchi.push(o.blocchi || o.righe); righe.push(o.righe); }
+  }
+  testoRighe = righe.some(x => x) && blocchi.join("") !== righe.join("") ? righe.join("\n\n") : "";
+  return blocchi.join("\n\n");
+}
+/* Le due letture del telefono (riquadri e righe): si tiene la più completa e si completano i vuoti con l'altra */
+function unisciLetture(rB, rR){
+  if(!rR) return rB;
+  const chiavi = ["ente","importo","scadenza","periodoDa","periodoA","numero","emessa","codiceCliente","pod","indirizzo","consumo"];
+  const punti = r => chiavi.filter(k => !vuoto(r[k])).length + (r.importo ? 2 : 0) + (r.scadenza ? 2 : 0);
+  const [base, altro] = punti(rR) > punti(rB) ? [rR, rB] : [rB, rR];
+  const r = Object.assign({}, base);
+  for(const k of Object.keys(altro)) if(vuoto(r[k]) && !vuoto(altro[k])) r[k] = altro[k];
+  if(base.periodoDa && !base.periodoA || !base.periodoDa && base.periodoA){ r.periodoDa = altro.periodoDa || r.periodoDa; r.periodoA = altro.periodoA || r.periodoA; }
+  r.prospettoRate = !!(rB.prospettoRate || rR.prospettoRate);
+  return r;
 }
 
 /* ---------- Lettura online gratuita con Google Gemini ---------- */
@@ -908,7 +931,7 @@ async function geminiModelloValido(){
 async function geminiRead(files){
   const s = settings(); if(!s.geminiKey) throw new Error("Manca la chiave gratuita di Google in Impostazioni → Lettura bollette.");
   const parts = files.map(f => ({inline_data:{mime_type:f.mime, data:f.data}}));
-  parts.push({text:PROMPT_LETTURA()});
+  parts.push({text:(files.length > 1 ? `Le ${files.length} immagini sono pagine (o parti) della STESSA bolletta: usale tutte insieme.\n` : "") + PROMPT_LETTURA()});
   const body = {contents:[{role:"user", parts}], generationConfig:{temperature:0, responseMimeType:"application/json"}};
   const {status, j} = await geminiSicuro(body);
   if(status === 503 || status === 500) throw new Error("Google in questo momento è sovraccarico: riprova tra qualche minuto.");
@@ -1279,8 +1302,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.32";
+const VERSIONE = "v1.33";
 const CRONOLOGIA = [
+  {v:"v1.33", d:"22/11/2026", n:["Con più foto della stessa bolletta, la lettura con Google ora le guarda tutte (prima solo la prima).", "Quando rileggi, i dati letti in automatico vengono sostituiti tutti (prima restavano quelli vecchi sbagliati).", "Pronta per la nuova app (2.0): il telefono legge riquadro per riquadro, come la galleria Xiaomi, e tiene la lettura più completa."]},
   {v:"v1.32", d:"22/11/2026", n:["Corretto: una bolletta normale (es. A2A acqua con «piano rateale») veniva presa per un prospetto delle rate del condominio.", "Nella schermata delle rate c'è «🧾 Non è un prospetto di rate: è una bolletta normale».", "Lettura: POD dell'acqua con lettera (IT006A…), «al20 Giugno» e «Indirizzo difornitura» scritti attaccati."]},
   {v:"v1.31", d:"22/11/2026", n:["Acquisisci: «✍️ Scrivi i dati a mano» per inserire una bolletta senza foto.", "Nella scheda di una bolletta senza documenti c'è «📎 Aggiungi la foto o il PDF»."]},
   {v:"v1.30", d:"22/11/2026", n:["In Modifica si possono vedere le foto e i PDF già salvati (tocca il documento: «👁️ vedi»), per controllare i dati senza uscire.", "Le foto si aprono dentro l'app: tocca la foto per ingrandirla, scorri per muoverti, «Chiudi» per tornare."]},
@@ -1696,14 +1720,19 @@ function evidenziaDubbi(){
 }
 /* A Google va solo il primo documento: il PDF così com'è, la foto rimpicciolita (risponde prima e consuma meno) */
 async function perGoogle(docs){
-  const f = docs.find(d => d.mime === "application/pdf") || docs[0];
-  if(!f || !f.mime.startsWith("image/")) return [f];
-  try{
-    const img = await loadImage(dataUrl(f)), k = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return [{name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.8).split(",")[1]}];
-  }catch(e){ return [f]; }
+  // un PDF va da solo (contiene già tutte le pagine); le foto vanno tutte, fino a 4, alleggerite
+  const pdf = docs.find(d => d.mime === "application/pdf");
+  if(pdf) return [pdf];
+  const out = [];
+  for(const f of docs.filter(d => d.mime.startsWith("image/")).slice(0, 4)){
+    try{
+      const img = await loadImage(dataUrl(f)), k = Math.min(1, 1800 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      out.push({name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.82).split(",")[1]});
+    }catch(e){ out.push(f); }
+  }
+  return out.length ? out : docs.slice(0, 1);
 }
 /* Come leggere la bolletta: testo incollato, lettura del telefono, lettura con Google */
 const usaTel = () => settings().letturaTel !== false;
@@ -1773,8 +1802,11 @@ async function doLeggi(testoIncollato){
     let docs = draft.pendingFiles;
     if(!docs.length && !testoIncollato){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
     if(!testoIncollato && !usaTel() && !usaGoogle()){ throw new Error("Nessuna lettura accesa: tocca «📱 Acquisizione interna telefono» o «🌐 Acquisizione con Google»."); }
-    lastText = testoIncollato || await testoDocumenti(docs, msg); draft._testo = lastText;
+    testoRighe = "";
+    lastText = testoIncollato || await testoDocumenti(docs, msg);
     let r = parseBolletta(lastText);
+    if(!testoIncollato && testoRighe){ r = unisciLetture(r, parseBolletta(testoRighe)); lastText += "\n\n----- stesso testo, letto per righe -----\n" + testoRighe; }
+    draft._testo = lastText;
     const telDati = !!testoIncollato || usaTel();
     // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
     if(r.prospettoRate && !draft._edit && !draft._nonRate){ await avviaRate(docs, msg); return; }
@@ -1794,6 +1826,8 @@ async function doLeggi(testoIncollato){
     // in modifica completa solo i campi vuoti
     const trovati = [];
     for(const k of ["ente","tipo","importo","scadenza","emessa","numero","periodoDa","periodoA","codiceCliente","pod","indirizzo","consumo","unita","lettura","note"]){
+      // nuova bolletta: ogni lettura sostituisce i dati letti prima (anche quelli che ora non trova); in modifica si riempiono solo i vuoti
+      if(!draft._edit && draft.datiAuto && vuoto(r[k])) draft[k] = "";
       if(vuoto(r[k]) || (draft._edit && !vuoto(draft[k]))) continue;
       draft[k] = r[k]; trovati.push(k);
     }
