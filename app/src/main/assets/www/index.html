@@ -1279,8 +1279,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.30";
+const VERSIONE = "v1.31";
 const CRONOLOGIA = [
+  {v:"v1.31", d:"22/11/2026", n:["Acquisisci: «✍️ Scrivi i dati a mano» per inserire una bolletta senza foto.", "Nella scheda di una bolletta senza documenti c'è «📎 Aggiungi la foto o il PDF»."]},
   {v:"v1.30", d:"22/11/2026", n:["In Modifica si possono vedere le foto e i PDF già salvati (tocca il documento: «👁️ vedi»), per controllare i dati senza uscire.", "Le foto si aprono dentro l'app: tocca la foto per ingrandirla, scorri per muoverti, «Chiudi» per tornare."]},
   {v:"v1.29", d:"22/11/2026", n:["«Sembra già archiviata» compare solo se coincide anche l'importo o la scadenza: un numero di fattura uguale da solo non basta (poteva essere letto male).", "Grafici: c'è «Tutti gli anni», con la spesa totale, la media all'anno e una barra per ogni anno."]},
   {v:"v1.28", d:"22/11/2026", n:["Archivio: nella pagina di un fornitore il primo riquadro è il «📊 RESOCONTO», con un colore diverso, separato dall'elenco delle bollette.", "Archivio: si aggiorna da solo (niente più pulsante «Aggiorna»); al suo posto c'è la ricerca, e sotto le case si sceglie l'anno.", "Acquisisci: tre pulsanti per come leggere la bolletta: 📋 Inserisci testo acquisito, 📱 Acquisizione interna telefono, 🌐 Acquisizione con Google (grigio con le istruzioni se manca la chiave).", "Se la lettura non trova ente, importo e scadenza, ora lo dice chiaramente invece di «Dati compilati»."]},
@@ -1431,7 +1432,7 @@ async function renderAcquisisci(edit){
   }
   if(edit){ draft = JSON.parse(JSON.stringify(edit)); draft.pendingFiles = draft.pendingFiles || []; draft._edit = true; lastText = ""; dubbiLettura = {}; }
   if(!draft) draft = newDraft();
-  const isEdit = !!draft._edit, vuota = !draft.pendingFiles.length && !isEdit;
+  const isEdit = !!draft._edit, vuota = !draft.pendingFiles.length && !isEdit && !draft._mano;
   if(isEdit && draft._casaOrig === undefined) draft._casaOrig = draft.casa || "";
   // prima di tutto: per quale casa? (se non è ancora scelta)
   const chiediCasa = !isEdit && !draft.casa;
@@ -1447,12 +1448,13 @@ async function renderAcquisisci(edit){
         <button class="bigpick" id="bFile"><span class="ic" style="background:#ccfbf1">📄</span><span><span class="t1">Scegli il PDF <span class="consig">consigliato</span></span><br><span class="t2">La bolletta arrivata per email, salvata nel telefono</span></span></button>
         <button class="bigpick" id="bCam"><span class="ic" style="background:#edf3e4">📷</span><span><span class="t1">Scatta una foto</span><br><span class="t2">Bolletta di carta, anche in più foto</span></span></button>
         <button class="bigpick" id="bGal"><span class="ic" style="background:#ede9fe">🖼️</span><span><span class="t1">Scegli una o più foto</span><br><span class="t2">Foto già fatte, dalla galleria del telefono</span></span></button>
+        <button class="bigpick" id="bMano"><span class="ic" style="background:#fef3c7">✍️</span><span><span class="t1">Scrivi i dati a mano</span><br><span class="t2">Senza foto: la foto o il PDF li aggiungi dopo</span></span></button>
         ${pulsantiLettura()}
         <p class="muted" style="margin-top:12px">📨 <b>Dall'email è ancora più facile:</b> apri l'allegato PDF, tocca <b>Condividi</b> e scegli <b>Bollette</b>. La bolletta arriva qui da sola.</p>`
       : `<div class="thumbs" id="thumbs"></div>
         <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button><button class="btn" id="bGal">🖼️ Dalla galleria</button></div>
         ${pulsantiLettura()}
-        <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>`}
+        ${draft.pendingFiles.length || isEdit ? `<div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>` : `<p class="muted" style="margin:8px 0 0">✍️ Scrivi i dati qui sotto. La foto o il PDF puoi aggiungerli adesso con i pulsanti qui sopra, oppure dopo: apri la bolletta → <b>📎 Aggiungi la foto o il PDF</b>.</p>`}`}
       <div class="status" id="leggiStatus"></div>
       <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
     </div>
@@ -1532,6 +1534,7 @@ async function renderAcquisisci(edit){
   $("#bFile").onclick = () => $("#fileInput").click();
   if($("#bGal")) $("#bGal").onclick = () => galInput().click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
+  if($("#bMano")) $("#bMano").onclick = () => { draft._mano = true; salvaBozza(); renderAcquisisci().then(() => { const e = $("#fEnte"); if(e){ e.scrollIntoView({behavior:"smooth", block:"center"}); e.focus(); } }); };
   bindPulsantiLettura();
   if($("#bCopiaTesto")) $("#bCopiaTesto").onclick = async () => { try{ await navigator.clipboard.writeText(lastText); toast("Testo copiato: incollalo nella chat."); }catch(e){ toast("Tieni premuto sul testo per copiarlo.", true); } };
   $("#view").addEventListener("input", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
@@ -1821,7 +1824,7 @@ async function doSalva(){
   if(!draft.ente){ toast("Scrivi l'ente (es. Enel Energia).", true); $("#fEnte").focus(); return; }
   if(!draft.importo && !(await conferma("Manca l'importo. Salvare lo stesso?", "Salva"))) return;
   if(!draft.scadenza && draft.stato !== "pag" && !(await conferma("Manca la scadenza: senza scadenza non posso avvisarti. Salvare lo stesso?", "Salva"))) return;
-  if(!draft._edit && !draft.pendingFiles.length && !(await conferma("Nessun PDF o foto allegato. Salvare lo stesso?", "Salva"))) return;
+  if(!draft._edit && !draft._mano && !draft.pendingFiles.length && !(await conferma("Nessun PDF o foto allegato. Salvare lo stesso?\n\nPotrai aggiungerli dopo: apri la bolletta → 📎 Aggiungi la foto o il PDF.", "Salva"))) return;
   if(!draft._edit){ const d = await doppione(draft); if(d && !(await conferma(`Questa bolletta sembra già archiviata:\n${nomeEnte(d)} · ${euro(d.importo)} · scadenza ${fmtDate(d.scadenza)}.\n\nSalvarla lo stesso?`, "Salva"))) return; }
   const a = draft, me = io(), ora = new Date().toISOString();
   if(a._edit) delete a.datiAuto;
@@ -1836,7 +1839,8 @@ async function doSalva(){
   let np = giaPdf, ni = giaImg;
   a.pendingFiles.forEach(f => { if(f.mime === "application/pdf"){ np++; f.name = np === 1 ? "bolletta.pdf" : `bolletta_${np}.pdf`; } else { ni++; f.name = `bolletta_${ni}.${extOf(f.name) || "jpg"}`; } });
   const spostare = a._edit && (a._casaOrig || "") !== (a.casa || "");
-  delete a._edit; delete a._casaOrig; a.daCaricare = true;
+  const senzaDoc = !a.pendingFiles.length && !(a.files || []).length;
+  delete a._edit; delete a._casaOrig; delete a._mano; a.daCaricare = true;
   const b = $("#bSalva"); b.disabled = true; b.innerHTML = `<span class="spinner"></span>Salvo…`;
   let msg;
   try{
@@ -1849,6 +1853,7 @@ async function doSalva(){
     setNasState(archivioPronto() ? "off" : "unknown");
     msg = "Salvata sul telefono. La carico nell'archivio appena è raggiungibile (" + e.message + ").";
   }
+  if(senzaDoc) msg += " · Senza foto: la aggiungi aprendo la bolletta → 📎 Aggiungi la foto o il PDF.";
   await putBolletta(a); syncReminders();
   if(a.stato === "pag" && A && A.annullaNotifica) A.annullaNotifica(a.id);
   draft = null; lastText = ""; dubbiLettura = {}; cancellaBozza();
@@ -2025,8 +2030,9 @@ async function renderDettaglio(id){
       </div>
       ${a.note ? `<label>Note</label><div style="white-space:pre-wrap">${esc(a.note)}</div>` : ""}
       ${daPagare(a) ? `<div class="btns"><button class="btn primary" id="bPagata">💶 L'ho pagata: segnala</button></div>` : a.stato === "pag" ? `<div class="btns"><button class="btn small" id="bNonPagata">↩️ Non è pagata</button></div>` : ""}
-      <label>Documenti (tocca per aprire)</label>
-      <div class="thumbs" id="dThumbs">${files.map((f, i) => `<div class="thumb" data-i="${i}">${f.local && f.mime.startsWith("image/") ? `<img src="${dataUrl(f)}">` : (isImg(f.name) ? "🖼️" : "📄") + "<br>" + esc(f.name.slice(0, 22))}</div>`).join("") || `<span class="muted">Nessuno.</span>`}</div>
+      ${files.length ? "" : `<label>Documenti</label><div class="g-nota att" style="margin:4px 0 8px">📎 Questa bolletta non ha ancora la foto o il PDF.</div>${puoModificare(a) ? `<div class="btns"><button class="btn primary" id="bAggDoc">📎 Aggiungi la foto o il PDF</button></div>` : ""}`}
+      <label${files.length ? "" : ' class="hidden"'}>Documenti (tocca per aprire)</label>
+      <div class="thumbs${files.length ? "" : " hidden"}" id="dThumbs">${files.map((f, i) => `<div class="thumb" data-i="${i}">${f.local && f.mime.startsWith("image/") ? `<img src="${dataUrl(f)}">` : (isImg(f.name) ? "🖼️" : "📄") + "<br>" + esc(f.name.slice(0, 22))}</div>`).join("") || `<span class="muted">Nessuno.</span>`}</div>
       ${puoModificare(a) && piuCase() && !a.daCaricare ? `<div class="btns"><button class="btn" id="bSposta">🏠 Sposta in un'altra casa</button></div>` : ""}
       <div class="btns">
         ${puoModificare(a) ? `<button class="btn" id="bEdit">✏️ Modifica</button>` : ""}
@@ -2045,6 +2051,7 @@ async function renderDettaglio(id){
   if($("#bPagata")) $("#bPagata").onclick = () => dialogoPagata(a);
   if($("#bNonPagata")) $("#bNonPagata").onclick = async () => { if(!(await conferma("Rimettere la bolletta tra quelle da pagare?", "Sì"))) return; await cambiaStato(a, {stato:"da", pagataIl:"", pagataCon:""}); renderDettaglio(a.id); };
   if($("#bEdit")) $("#bEdit").onclick = () => { draft = null; setView("acquisisci", a); };
+  if($("#bAggDoc")) $("#bAggDoc").onclick = () => { draft = null; setView("acquisisci", a); };
   if($("#bSposta")) $("#bSposta").onclick = () => dialogoSposta(a);
   $("#bPrint").onclick = async () => {
     const b = $("#bPrint"); b.disabled = true; b.textContent = "⏳ Preparo…";
@@ -2796,6 +2803,7 @@ function renderGuida(){
     ${passo(1, "Nella Home tocca <b>Acquisisci</b>, poi tocca la <b>casa</b> della bolletta.", schermo("Bollette di casa", tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta", true), true))}
     ${passo(2, "Se la bolletta è un <b>PDF salvato nel telefono</b> (per esempio nella cartella Download) tocca <b>📄 Scegli il PDF</b>. Se è di <b>carta</b> tocca <b>📷 Scatta una foto</b>. Se le foto le hai <b>già fatte</b>, tocca <b>🖼️ Scegli una o più foto</b>: nella finestra che si apre tieni il dito su una foto e poi tocca le altre per sceglierne più di una.",
       schermo("Acquisisci", `<div class="g-card"><b>1. La bolletta</b><div class="g-tile g-tocca"><span class="g-ic" style="background:#ccfbf1">📄</span><span><b>Scegli il PDF</b><br><small>La bolletta arrivata per email</small></span></div><div class="g-tile"><span class="g-ic" style="background:#edf3e4">📷</span><span><b>Scatta una foto</b><br><small>Bolletta di carta</small></span></div><div class="g-tile"><span class="g-ic" style="background:#ede9fe">🖼️</span><span><b>Scegli una o più foto</b><br><small>Dalla galleria</small></span></div></div>`))}
+    ${nota("Non hai la foto adesso? Tocca <b>✍️ Scrivi i dati a mano</b>, compila e salva. Dopo apri la bolletta e tocca <b>📎 Aggiungi la foto o il PDF</b>.")}
     ${passo(3, "Con la foto, l'app chiede <b>«C'è un'altra pagina?»</b>. Di solito basta la <b>prima pagina</b>, dove ci sono importo e scadenza: tocca <b>✅ No, basta così: leggi</b>.")}
     ${passo(4, "L'app legge la bolletta in pochi secondi. Controlla i dati e tocca <b>💾 Salva</b>. Alla domanda <b>«Vuoi stampare la scheda?»</b> rispondi <b>🖨️ Stampa</b> oppure <b>Annulla</b>.",
       schermo("Acquisisci", `<div class="g-card"><div class="g-row">${btn("Svuota")}${btn("🖨️ Stampa")}${btn("💾 Salva", true, true)}</div></div>`))}
