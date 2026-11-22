@@ -494,6 +494,7 @@ function newDraft(){
 }
 /* Stato di una bolletta: {cls, label, giorni, pagata} */
 function statoInfo(b){
+  if(b.stato === "cred") return {cls:"pag", label:"A credito (rimborso)", pagata:true};
   if(b.stato === "pag") return {cls:"pag", label:"Pagata" + (b.pagataIl ? " il " + fmtDate(b.pagataIl) : ""), pagata:true};
   const g = b.scadenza ? daysLeft(b.scadenza) : null;
   if(b.stato === "dom") return {cls:"dom", label: g !== null && g < 0 ? "Domiciliata · addebitata" : "Domiciliata" + (g !== null ? (g === 0 ? " · addebito oggi" : ` · addebito tra ${g} gg`) : ""), giorni:g, pagata: g !== null && g < 0};
@@ -503,12 +504,12 @@ function statoInfo(b){
   if(g <= 7) return {cls:"warn", label:`Scade tra ${g} ${g === 1 ? "giorno" : "giorni"}`, giorni:g};
   return {cls:"fut", label:"Da pagare entro il " + fmtDate(b.scadenza), giorni:g};
 }
-const daPagare = b => b.stato !== "pag" && b.stato !== "dom";
+const daPagare = b => b.stato !== "pag" && b.stato !== "dom" && b.stato !== "cred";
 const urgente = b => daPagare(b) && b.scadenza && daysLeft(b.scadenza) <= 7;
 const nomeEnte = b => [b.ente || "Ente sconosciuto", b.tipo ? normTipo(b.tipo) : ""].filter(Boolean).join(" - ");
 function folderFor(b){
   const data = (b.scadenza || b.emessa || todayISO()).replace(/-/g, "_");
-  const imp = Number(b.importo) > 0 ? " " + Number(b.importo).toFixed(2).replace(".", ",") + "€" : "";
+  const imp = Number(b.importo) > 0 ? " " + Number(b.importo).toFixed(2).replace(".", ",") + "€" : Number(b.importo) < 0 ? " rimborso " + Math.abs(Number(b.importo)).toFixed(2).replace(".", ",") + "€" : "";
   return `${b.casa ? safeName(b.casa) + "/" : ""}${safeName(nomeEnte(b))}/${data}${b.scadenza ? " scad." : ""}${imp}`;
 }
 /* cartella del fornitore (tutto tranne l'ultima parte): "Casa mia/Enel Energia - Luce" */
@@ -537,7 +538,7 @@ const dataRif = b => {
 // Fornitori noti: nome da mostrare, parole con cui riconoscerli, tipo più probabile
 const ENTI_NOTI = [
   ["Enel Energia", /enel\s*energia/i, ""], ["Servizio Elettrico Nazionale", /servizio\s+elettrico\s+nazionale|servizioelettriconazionale|servizio\s+di\s+maggior\s+tutela/i, "Luce"],
-  ["A2A Ciclo Idrico", /a2a\s*ciclo\s*idrico|a2acicloidrico/i, "Acqua"], ["Acque Bresciane", /acque\s+bresciane/i, "Acqua"], ["A2A Energia", /\ba2a\b/i, ""], ["Iren", /\biren\b/i, ""], ["Hera Comm", /hera\s*comm|gruppo\s+hera|\bhera\s+s\.?p\.?a/i, ""],
+  ["A2A Ciclo Idrico", /a[2z]a\s*cicl[oa]\s*[il]drico|a2a\.?cicloidrico/i, "Acqua"], ["Acque Bresciane", /acque\s+bresciane/i, "Acqua"], ["A2A Energia", /\ba2a\b/i, ""], ["Iren", /\biren\b/i, ""], ["Hera Comm", /hera\s*comm|gruppo\s+hera|\bhera\s+s\.?p\.?a/i, ""],
   ["Edison Energia", /edison\s*energia/i, ""], ["Eni Plenitude", /plenitude|eni\s+gas\s+e\s+luce/i, ""], ["Sorgenia", /sorgenia/i, ""],
   ["Acea Energia", /acea\s*energia/i, ""], ["Acea Ato 2", /acea\s*ato\s*2/i, "Acqua"], ["Engie", /\bengie\b/i, ""], ["Illumia", /illumia/i, ""],
   ["E.ON Energia", /\be\.?on\b(?!\w)/i, ""], ["Iberdrola", /iberdrola/i, ""], ["Octopus Energy", /octopus\s*energy/i, ""], ["NeN", /\bnen\s+(?:s\.?p\.?a|energia)/i, ""],
@@ -774,6 +775,12 @@ function parseBolletta(text){
     const buona = cand.filter(c => (c.peso <= 0 || !escluse.has(c.d)) && (!r.emessa || c.d >= r.emessa) && entro(c.d)).sort((a, b) => a.peso - b.peso)[0];
     if(buona) r.scadenza = buona.d; else if(r.scadenza && (escluse.has(r.scadenza) || !entro(r.scadenza))) r.scadenza = "";
   }
+  // bolletta a credito (rimborso): importo negativo, niente scadenza da pagare
+  if(/quanto\s+mi\s+rimborsate|importo\s+a\s+(?:tuo|vostro)\s+credito|saldo\s+a\s+(?:tuo\s+)?credito|totale\s+a\s+(?:tuo\s+)?credito|ti\s+rimborseremo/i.test(T)){
+    const neg = T.match(/totale(?:\s+bolletta)?\s*:?\s*\n?\s*-\s?(\d{1,3}(?:\.\d{3})*,\d{2})/i) || T.match(/rimborsate\?[\s\S]{0,80}?-\s?(\d{1,3}(?:\.\d{3})*,\d{2})/i) || T.match(/(?:^|\s)-\s?(\d{1,3}(?:\.\d{3})*,\d{2})\s*(?:€|euro)?/m);
+    if(neg){ r.importo = -num(neg[1]); r.credito = true; r.scadenza = ""; }
+    else if(Number(r.importo) > 0){ r.importo = -Number(r.importo); r.credito = true; r.scadenza = ""; }
+  }
   // prospetto delle rate del condominio (tabella con più condòmini): gli importi non si indovinano dal testo
   if(/condomin/i.test(T) && !/servizio\s+idrico|ciclo\s+idrico|\bkwh\b|\bsmc\b/i.test(T) && (/prospetto\s+(?:delle\s+)?rate\b|piano\s+(?:delle\s+)?rate\b|riparto\s+rate\b|rate\s+preventivo/i.test(T) || (T.match(/\b\d\s*[aª°à²³è]?\s*rata\b/gi) || []).length >= 3)){
     r.prospettoRate = true; r.tipo = "Condominio"; r.importo = ""; r.scadenza = "";
@@ -838,17 +845,40 @@ async function primaPaginaJpeg(b64){
   return c.toDataURL("image/jpeg", 0.85);
 }
 /* Testo di tutti i documenti: dai PDF veri si legge il testo, le foto e i PDF scansionati passano dall'OCR del telefono */
-async function testoDocumenti(docs, avanza){
-  const testi = [];
-  for(const f of docs){
-    let t = "";
-    if(f.mime === "application/pdf"){
-      try{ t = await testoPdf(f.data); }catch(e){ t = ""; }
-      if(t.replace(/\s/g, "").length < 120 && A){ avanza && avanza("PDF scansionato: lo leggo come una foto…"); t = await call("ocr", f.data, f.mime); }
-    }else if(A) t = await call("ocr", f.data, f.mime);
-    testi.push(t);
+// testo "per righe" (come uno scontrino), tenuto da parte per confrontarlo con quello riquadro per riquadro
+let testoRighe = "";
+async function ocrFoto(f){
+  // app nuova: testo riquadro per riquadro + per righe; app vecchia: solo per righe
+  if(A && A.ocrDati){
+    try{ const o = JSON.parse(await call("ocrDati", f.data, f.mime)); return {blocchi:o.blocchi || "", righe:o.righe || ""}; }catch(e){}
   }
-  return testi.join("\n\n");
+  const t = A ? await call("ocr", f.data, f.mime) : "";
+  return {blocchi:"", righe:t};
+}
+async function testoDocumenti(docs, avanza){
+  const blocchi = [], righe = [];
+  for(const f of docs){
+    if(f.mime === "application/pdf"){
+      let t = "";
+      try{ t = await testoPdf(f.data); }catch(e){ t = ""; }
+      if(t.replace(/\s/g, "").length < 120 && A){ avanza && avanza("PDF scansionato: lo leggo come una foto…"); const o = await ocrFoto(f); blocchi.push(o.blocchi || o.righe); righe.push(o.righe); }
+      else{ blocchi.push(t); righe.push(""); }
+    }else if(A){ const o = await ocrFoto(f); blocchi.push(o.blocchi || o.righe); righe.push(o.righe); }
+  }
+  testoRighe = righe.some(x => x) && blocchi.join("") !== righe.join("") ? righe.join("\n\n") : "";
+  return blocchi.join("\n\n");
+}
+/* Le due letture del telefono (riquadri e righe): si tiene la più completa e si completano i vuoti con l'altra */
+function unisciLetture(rB, rR){
+  if(!rR) return rB;
+  const chiavi = ["ente","importo","scadenza","periodoDa","periodoA","numero","emessa","codiceCliente","pod","indirizzo","consumo"];
+  const punti = r => chiavi.filter(k => !vuoto(r[k])).length + (r.importo ? 2 : 0) + (r.scadenza ? 2 : 0);
+  const [base, altro] = punti(rR) > punti(rB) ? [rR, rB] : [rB, rR];
+  const r = Object.assign({}, base);
+  for(const k of Object.keys(altro)) if(vuoto(r[k]) && !vuoto(altro[k])) r[k] = altro[k];
+  if(base.periodoDa && !base.periodoA || !base.periodoDa && base.periodoA){ r.periodoDa = altro.periodoDa || r.periodoDa; r.periodoA = altro.periodoA || r.periodoA; }
+  r.prospettoRate = !!(rB.prospettoRate || rR.prospettoRate);
+  return r;
 }
 
 /* ---------- Lettura online gratuita con Google Gemini ---------- */
@@ -908,7 +938,7 @@ async function geminiModelloValido(){
 async function geminiRead(files){
   const s = settings(); if(!s.geminiKey) throw new Error("Manca la chiave gratuita di Google in Impostazioni → Lettura bollette.");
   const parts = files.map(f => ({inline_data:{mime_type:f.mime, data:f.data}}));
-  parts.push({text:PROMPT_LETTURA()});
+  parts.push({text:(files.length > 1 ? `Le ${files.length} immagini sono pagine (o parti) della STESSA bolletta: usale tutte insieme.\n` : "") + PROMPT_LETTURA()});
   const body = {contents:[{role:"user", parts}], generationConfig:{temperature:0, responseMimeType:"application/json"}};
   const {status, j} = await geminiSicuro(body);
   if(status === 503 || status === 500) throw new Error("Google in questo momento è sovraccarico: riprova tra qualche minuto.");
@@ -1279,8 +1309,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.32";
+const VERSIONE = "v1.33";
 const CRONOLOGIA = [
+  {v:"v1.33", d:"22/11/2026", n:["Con più foto della stessa bolletta, la lettura con Google ora le guarda tutte (prima solo la prima).", "Quando rileggi, i dati letti in automatico vengono sostituiti tutti (prima restavano quelli vecchi sbagliati).", "Pronta per la nuova app (2.0): il telefono legge riquadro per riquadro, come la galleria Xiaomi, e tiene la lettura più completa.", "Bollette a credito (rimborso): in Pagamento c'è «💚 A credito (rimborso)»; l'importo si scrive senza il meno, non serve la scadenza e non compare tra quelle da pagare. Nei grafici abbassa la spesa.", "L'importo si scrive con la virgola (es. 78,56).", "Incollando il testo senza foto, il modulo dei dati ora compare."]},
   {v:"v1.32", d:"22/11/2026", n:["Corretto: una bolletta normale (es. A2A acqua con «piano rateale») veniva presa per un prospetto delle rate del condominio.", "Nella schermata delle rate c'è «🧾 Non è un prospetto di rate: è una bolletta normale».", "Lettura: POD dell'acqua con lettera (IT006A…), «al20 Giugno» e «Indirizzo difornitura» scritti attaccati."]},
   {v:"v1.31", d:"22/11/2026", n:["Acquisisci: «✍️ Scrivi i dati a mano» per inserire una bolletta senza foto.", "Nella scheda di una bolletta senza documenti c'è «📎 Aggiungi la foto o il PDF»."]},
   {v:"v1.30", d:"22/11/2026", n:["In Modifica si possono vedere le foto e i PDF già salvati (tocca il documento: «👁️ vedi»), per controllare i dati senza uscire.", "Le foto si aprono dentro l'app: tocca la foto per ingrandirla, scorri per muoverti, «Chiudi» per tornare."]},
@@ -1469,11 +1500,11 @@ async function renderAcquisisci(edit){
       </div>
       <datalist id="dlEnti"></datalist>
       <div class="row">
-        <div><label>Importo (€)</label><input id="fImporto" type="number" step="0.01" inputmode="decimal"></div>
+        <div><label id="lImporto">${draft.stato === "cred" ? "Rimborso a credito (€)" : "Importo (€)"}</label><input id="fImporto" type="text" inputmode="decimal" placeholder="es. 78,56"></div>
         <div><label>Scadenza</label><input id="fScadenza" type="date"></div>
       </div>
       <label>Pagamento</label>
-      <div class="seg" id="segStato"><button data-s="da">Da pagare</button><button data-s="dom">Domiciliata</button><button data-s="pag">Già pagata</button></div>
+      <div class="seg" id="segStato"><button data-s="da">Da pagare</button><button data-s="dom">Domiciliata</button><button data-s="pag">Già pagata</button><button data-s="cred">💚 A credito (rimborso)</button></div>
       <div class="okline hidden" id="rowPagata" style="display:flex;align-items:center;gap:10px"><span style="flex:1" id="pagTxt"></span><button class="btn small" id="bPagCambia">Cambia</button></div>
       <label>Periodo</label>
       <div class="row"><div><input id="fDa" type="date" aria-label="dal"></div><div><input id="fA" type="date" aria-label="al"></div></div>
@@ -1506,6 +1537,7 @@ async function renderAcquisisci(edit){
   allBollette().then(l => { const dl = $("#dlEnti"); if(dl) dl.innerHTML = [...new Set(l.map(b => b.ente).filter(Boolean).concat(ENTI_NOTI.map(e => e[0])))].map(e => `<option value="${esc(e)}">`).join(""); });
   const F = {fEnte:"ente", fImporto:"importo", fScadenza:"scadenza", fDa:"periodoDa", fA:"periodoA", fNumero:"numero", fEmessa:"emessa", fCliente:"codiceCliente", fPod:"pod", fInd:"indirizzo", fConsumo:"consumo", fNote:"note"};
   for(const [id, k] of Object.entries(F)){ const el = $("#" + id); el.value = draft[k] ?? ""; }
+  if(draft.importo !== "" && draft.importo != null) $("#fImporto").value = Math.abs(Number(draft.importo)).toFixed(2).replace(".", ",");
   $("#fTipo").value = draft.tipo || "";
   const setStato = s => {
     draft.stato = s; document.querySelectorAll("#segStato button").forEach(b => b.classList.toggle("on", b.dataset.s === s));
@@ -1523,7 +1555,7 @@ async function renderAcquisisci(edit){
   document.querySelectorAll("#segStato button").forEach(b => b.onclick = async () => {
     readForm();
     if(b.dataset.s === "pag"){ await chiediPagata(); return; }
-    draft._statoScelto = true; draft.pagataIl = ""; draft.pagataCon = ""; setStato(b.dataset.s); updPreview(); salvaBozza();
+    draft._statoScelto = true; draft.pagataIl = ""; draft.pagataCon = ""; setStato(b.dataset.s); readForm(); $("#lImporto").textContent = b.dataset.s === "cred" ? "Rimborso a credito (€)" : "Importo (€)"; updPreview(); salvaBozza();
   });
   $("#fTipo").onchange = () => { readForm(); const u = tipoInfo(draft.tipo).u; if(u && !$("#fUnita").value){ $("#fUnita").value = u; readForm(); } updPreview(); };
   if(!vuota){ drawThumbs(); updPreview(); }
@@ -1604,7 +1636,9 @@ const bozzaVuota = () => !draft || (!draft._edit && !(draft.pendingFiles || []).
 function readForm(){
   if(!$("#fEnte")) return;
   const v = id => $("#" + id).value.trim(), n = id => v(id) === "" ? "" : Number(v(id));
-  Object.assign(draft, {ente:v("fEnte"), tipo:$("#fTipo").value, importo:n("fImporto"), scadenza:$("#fScadenza").value, periodoDa:$("#fDa").value, periodoA:$("#fA").value,
+  // importo scritto con la virgola (78,56 o 1.234,56); per i rimborsi si salva con il segno meno
+  const imp = (() => { const t = v("fImporto").replace(/[€\s]/g, ""); if(t === "") return ""; const x = Number(t.replace(/\.(?=\d{3}(,|$))/g, "").replace(",", ".")); return isNaN(x) ? "" : x; })();
+  Object.assign(draft, {ente:v("fEnte"), tipo:$("#fTipo").value, importo:imp === "" ? "" : (draft.stato === "cred" ? -Math.abs(imp) : Math.abs(imp)), scadenza:$("#fScadenza").value, periodoDa:$("#fDa").value, periodoA:$("#fA").value,
     numero:v("fNumero"), emessa:$("#fEmessa").value, codiceCliente:v("fCliente"), pod:v("fPod"), indirizzo:v("fInd"), consumo:n("fConsumo"), unita:$("#fUnita").value,
     lettura:$("#fLettura").value, note:$("#fNote").value.trim()});
   if(draft.stato !== "pag"){ draft.pagataIl = ""; draft.pagataCon = ""; } else if(!draft.pagataIl) draft.pagataIl = todayISO();
@@ -1696,14 +1730,19 @@ function evidenziaDubbi(){
 }
 /* A Google va solo il primo documento: il PDF così com'è, la foto rimpicciolita (risponde prima e consuma meno) */
 async function perGoogle(docs){
-  const f = docs.find(d => d.mime === "application/pdf") || docs[0];
-  if(!f || !f.mime.startsWith("image/")) return [f];
-  try{
-    const img = await loadImage(dataUrl(f)), k = Math.min(1, 1600 / Math.max(img.width, img.height));
-    const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
-    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-    return [{name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.8).split(",")[1]}];
-  }catch(e){ return [f]; }
+  // un PDF va da solo (contiene già tutte le pagine); le foto vanno tutte, fino a 4, alleggerite
+  const pdf = docs.find(d => d.mime === "application/pdf");
+  if(pdf) return [pdf];
+  const out = [];
+  for(const f of docs.filter(d => d.mime.startsWith("image/")).slice(0, 4)){
+    try{
+      const img = await loadImage(dataUrl(f)), k = Math.min(1, 1800 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas"); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      out.push({name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.82).split(",")[1]});
+    }catch(e){ out.push(f); }
+  }
+  return out.length ? out : docs.slice(0, 1);
 }
 /* Come leggere la bolletta: testo incollato, lettura del telefono, lettura con Google */
 const usaTel = () => settings().letturaTel !== false;
@@ -1758,7 +1797,7 @@ function incollaTesto(){
   $("#txLeggi").onclick = () => {
     const t = $("#txIncolla").value.trim();
     if(t.length < 20){ toast("Il riquadro è vuoto: incolla prima il testo.", true); return; }
-    m.remove(); doLeggi(t);
+    m.remove(); if(!draft.pendingFiles.length && !draft._edit) draft._mano = true; doLeggi(t);
   };
 }
 async function doLeggi(testoIncollato){
@@ -1773,8 +1812,11 @@ async function doLeggi(testoIncollato){
     let docs = draft.pendingFiles;
     if(!docs.length && !testoIncollato){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
     if(!testoIncollato && !usaTel() && !usaGoogle()){ throw new Error("Nessuna lettura accesa: tocca «📱 Acquisizione interna telefono» o «🌐 Acquisizione con Google»."); }
-    lastText = testoIncollato || await testoDocumenti(docs, msg); draft._testo = lastText;
+    testoRighe = "";
+    lastText = testoIncollato || await testoDocumenti(docs, msg);
     let r = parseBolletta(lastText);
+    if(!testoIncollato && testoRighe){ r = unisciLetture(r, parseBolletta(testoRighe)); lastText += "\n\n----- stesso testo, letto per righe -----\n" + testoRighe; }
+    draft._testo = lastText;
     const telDati = !!testoIncollato || usaTel();
     // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
     if(r.prospettoRate && !draft._edit && !draft._nonRate){ await avviaRate(docs, msg); return; }
@@ -1790,10 +1832,12 @@ async function doLeggi(testoIncollato){
     }
     else if(testoIncollato) modoLettura = "testo incollato";
     // lo stato lo decide solo l'utente: se non l'ha toccato, una bolletta letta è sempre "da pagare"
-    if(!draft._edit && !draft._statoScelto) draft.stato = "da";
+    if(!draft._edit && !draft._statoScelto) draft.stato = r.credito ? "cred" : "da";
     // in modifica completa solo i campi vuoti
     const trovati = [];
     for(const k of ["ente","tipo","importo","scadenza","emessa","numero","periodoDa","periodoA","codiceCliente","pod","indirizzo","consumo","unita","lettura","note"]){
+      // nuova bolletta: ogni lettura sostituisce i dati letti prima (anche quelli che ora non trova); in modifica si riempiono solo i vuoti
+      if(!draft._edit && draft.datiAuto && vuoto(r[k])) draft[k] = "";
       if(vuoto(r[k]) || (draft._edit && !vuoto(draft[k]))) continue;
       draft[k] = r[k]; trovati.push(k);
     }
@@ -1803,12 +1847,13 @@ async function doLeggi(testoIncollato){
     let casaTrovata = "";
     if(!draft.casa && caseCasa().length){ const g = await indovinaCasa(draft); if(g){ draft.casa = g.casa; casaTrovata = g.perche; } }
     await renderAcquisisci();
-    const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && "scadenza"].filter(Boolean);
+    const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && draft.stato !== "cred" && "scadenza"].filter(Boolean);
     const nd = Object.keys(dubbiLettura).length;
     const comeL = modoLettura === "incrocio" ? " (telefono + Google)" : modoLettura === "google" ? " (con Google)" : modoLettura === "telefono" ? " (telefono)" : " (" + esc(modoLettura) + ")";
     $("#leggiStatus").innerHTML = (manca.length === 3 || !trovati.length ? "⚠️ Ho letto poco o niente" + comeL + ": controlla la foto (dritta, intera, con luce) e riprova, oppure scrivi tu i dati." : "✅ Dati compilati" + comeL + ": controllali prima di salvare.")
       + (nd ? ` <b>Controlla i campi in giallo</b>: le due letture non erano d'accordo.` : "")
       + (manca.length && trovati.length ? `<div class="g-nota att" style="margin-top:8px">⚠️ Non ho trovato: <b>${manca.join(", ")}</b>. Scrivilo tu guardando la bolletta.</div>` : "")
+      + (draft.stato === "cred" ? `<div class="g-nota" style="margin-top:8px">💚 È una bolletta <b>a credito</b> (rimborso): l'ho segnata «A credito», non c'è niente da pagare.</div>` : "")
       + (forseDom ? `<div class="g-nota" style="margin-top:8px">💡 Nella bolletta c'è una frase sull'addebito in conto. L'ho lasciata <b>da pagare</b>. Solo se sei sicuro che si paga da sola, tocca «Domiciliata».</div>` : "")
       + (modoLettura.startsWith("solo telefono") ? ` <button class="btn small" id="bRiprovaOn">🔄 Riprova online</button>` : "");
     if($("#bRiprovaOn")) $("#bRiprovaOn").onclick = () => doLeggi();
@@ -1825,7 +1870,7 @@ async function doSalva(){
   if(caseCasa().length && !draft.casa){ toast("Scegli di quale casa è la bolletta.", true); const c = $("#segCasa") || $("#cardCasa"); if(c) c.scrollIntoView({behavior:"smooth", block:"center"}); return; }
   if(!draft.ente){ toast("Scrivi l'ente (es. Enel Energia).", true); $("#fEnte").focus(); return; }
   if(!draft.importo && !(await conferma("Manca l'importo. Salvare lo stesso?", "Salva"))) return;
-  if(!draft.scadenza && draft.stato !== "pag" && !(await conferma("Manca la scadenza: senza scadenza non posso avvisarti. Salvare lo stesso?", "Salva"))) return;
+  if(!draft.scadenza && draft.stato !== "pag" && draft.stato !== "cred" && !(await conferma("Manca la scadenza: senza scadenza non posso avvisarti. Salvare lo stesso?", "Salva"))) return;
   if(!draft._edit && !draft._mano && !draft.pendingFiles.length && !(await conferma("Nessun PDF o foto allegato. Salvare lo stesso?\n\nPotrai aggiungerli dopo: apri la bolletta → 📎 Aggiungi la foto o il PDF.", "Salva"))) return;
   if(!draft._edit){ const d = await doppione(draft); if(d && !(await conferma(`Questa bolletta sembra già archiviata:\n${nomeEnte(d)} · ${euro(d.importo)} · scadenza ${fmtDate(d.scadenza)}.\n\nSalvarla lo stesso?`, "Salva"))) return; }
   const a = draft, me = io(), ora = new Date().toISOString();
@@ -1991,6 +2036,7 @@ function bollinoScadenza(a, s){
   let riga1, riga2 = "";
   if(a.stato === "pag"){ riga1 = "✅ Pagata"; riga2 = a.pagataIl ? "il " + fmtDate(a.pagataIl) : ""; }
   else if(a.stato === "dom"){ riga1 = "🏦 Domiciliata"; riga2 = d ? "addebito " + d : ""; }
+  else if(a.stato === "cred"){ riga1 = "💚 A credito"; riga2 = "rimborso"; }
   else if(!d){ riga1 = "Da pagare"; riga2 = "scadenza mancante"; }
   else{
     const g = s.giorni;
@@ -2172,7 +2218,7 @@ function syncReminders(){
    ========================================================= */
 let grafTipo = "", grafAnno = null;
 async function renderGrafici(){
-  const list = (await allBollette()).filter(b => Number(b.importo) > 0 && dataRif(b) && nellaCasa(b)).map(b => Object.assign({}, b, {tipo:normTipo(b.tipo)}));
+  const list = (await allBollette()).filter(b => Number(b.importo) !== 0 && !isNaN(Number(b.importo)) && b.importo !== "" && dataRif(b) && nellaCasa(b)).map(b => Object.assign({}, b, {tipo:normTipo(b.tipo)}));
   const anni = [...new Set(list.map(b => dataRif(b).slice(0, 4)))].sort().reverse();
   const annoOra = String(new Date().getFullYear());
   if(grafAnno === null || (grafAnno !== "" && !anni.includes(grafAnno))) grafAnno = anni.includes(annoOra) ? annoOra : (anni[0] || annoOra);
@@ -2824,7 +2870,7 @@ function renderGuida(){
     ${passo(1, "Guarda soprattutto <b>ente</b>, <b>importo</b> e <b>scadenza</b>: sono quelli che servono per gli avvisi.",
       schermo("Acquisisci", `<div class="g-card"><b>2. Controlla i dati</b><div class="g-grid">${campo("Ente", "Enel Energia")}${campo("Tipo", "Luce")}${campo("Importo (€)", "87,40")}${campo("Scadenza", "05/12/2026", true, true)}</div><small class="g-mut">⚠️ Sul telefono avevo letto 15/12/2026</small></div>`))}
     ${passo(2, "Un campo <b>giallo</b> vuol dire che la lettura del telefono e quella online non erano d'accordo: sotto c'è scritto cosa aveva letto il telefono. Guarda la bolletta e correggi se serve.")}
-    ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto) o <b>Già pagata</b>. L'app parte sempre da «Da pagare»: «Domiciliata» lo scegli tu.",
+    ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto), <b>Già pagata</b> o <b>💚 A credito</b> (bolletta di rimborso: l'importo si scrive senza il meno). L'app parte sempre da «Da pagare»: «Domiciliata» lo scegli tu.",
       `<div class="g-row"><span class="g-radio on g-tocca">Da pagare</span><span class="g-radio">Domiciliata</span><span class="g-radio">Già pagata</span></div>`)}
     ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Casa mia / Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>. In alto, sotto <b>Casa</b>, puoi cambiare la casa.")}
     ${nota("Se la stessa bolletta è già nell'archivio, l'app te lo dice prima di salvarla due volte.")}`),
