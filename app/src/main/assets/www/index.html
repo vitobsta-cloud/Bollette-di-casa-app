@@ -291,6 +291,20 @@ pre.ocr{white-space:pre-wrap;font-size:12px;background:#f6f7f9;border-radius:8px
 .bollino.pag{background:#dcfce7;color:#166534}
 .bollino.dom{background:#ede9fe;color:#5b21b6}
 
+.modi{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px}
+.modo{border:1.5px solid #dcdcdc;border-radius:14px;background:#fff;font:inherit;font-size:13.5px;line-height:1.25;padding:10px 6px;color:var(--text);display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+.modo .mi{font-size:22px}
+.modo.on{background:#0F766E;border-color:#0F766E;color:#fff}
+.modo.spento{background:#f1f1f1;color:#9a9a9a;border-style:dashed}
+.modo.spento .mi{filter:grayscale(1);opacity:.6}
+.bmodo{margin-top:8px;padding:8px 10px;border-radius:10px;background:#e6f4f1;color:#134e4a;font-size:13.5px;line-height:1.4}
+.bmodo.att{background:#fff4e5;color:#7c2d12}
+.resoconto{background:#e6f4f1;border:1.5px solid #99d5cb}
+.resoconto .rtit{font-size:12.5px;font-weight:800;letter-spacing:.06em;color:#0F766E;margin-bottom:6px}
+.resoconto .rnum{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px;text-align:center}
+.resoconto .rnum div{background:#fff;border-radius:10px;padding:7px 4px;font-size:12px;color:#555}
+.resoconto .rnum b{display:block;font-size:15.5px;color:#111}
+
 </style>
 </head>
 <body>
@@ -1259,8 +1273,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.27";
+const VERSIONE = "v1.28";
 const CRONOLOGIA = [
+  {v:"v1.28", d:"22/11/2026", n:["Archivio: nella pagina di un fornitore il primo riquadro è il «📊 RESOCONTO», con un colore diverso, separato dall'elenco delle bollette.", "Archivio: si aggiorna da solo (niente più pulsante «Aggiorna»); al suo posto c'è la ricerca, e sotto le case si sceglie l'anno.", "Acquisisci: tre pulsanti per come leggere la bolletta: 📋 Inserisci testo acquisito, 📱 Acquisizione interna telefono, 🌐 Acquisizione con Google (grigio con le istruzioni se manca la chiave).", "Se la lettura non trova ente, importo e scadenza, ora lo dice chiaramente invece di «Dati compilati»."]},
   {v:"v1.27", d:"21/11/2026", n:["Messaggio di invito per i familiari più chiaro."]},
   {v:"v1.26", d:"21/11/2026", n:["Grafici e spesa dell'anno: le rate del condominio contano nel mese della loro scadenza (prima finivano tutte a febbraio 2027, fine della gestione). Vale anche per le rate già salvate: non serve rifare niente.", "Per le bollette con periodo lungo (annuali) conta la scadenza."]},
   {v:"v1.25", d:"21/11/2026", n:["Lettura: date scritte attaccate (es. «14 Marzo2026»), indirizzo di fornitura anche se è qualche riga più sotto, consumo «29mc» letto anche quando sotto c'è il consumo annuo."]},
@@ -1424,11 +1439,12 @@ async function renderAcquisisci(edit){
         <button class="bigpick" id="bFile"><span class="ic" style="background:#ccfbf1">📄</span><span><span class="t1">Scegli il PDF <span class="consig">consigliato</span></span><br><span class="t2">La bolletta arrivata per email, salvata nel telefono</span></span></button>
         <button class="bigpick" id="bCam"><span class="ic" style="background:#edf3e4">📷</span><span><span class="t1">Scatta una foto</span><br><span class="t2">Bolletta di carta, anche in più foto</span></span></button>
         <button class="bigpick" id="bGal"><span class="ic" style="background:#ede9fe">🖼️</span><span><span class="t1">Scegli una o più foto</span><br><span class="t2">Foto già fatte, dalla galleria del telefono</span></span></button>
+        ${pulsantiLettura()}
         <p class="muted" style="margin-top:12px">📨 <b>Dall'email è ancora più facile:</b> apri l'allegato PDF, tocca <b>Condividi</b> e scegli <b>Bollette</b>. La bolletta arriva qui da sola.</p>`
       : `<div class="thumbs" id="thumbs"></div>
         <div class="btns"><button class="btn" id="bFile">📄 Aggiungi PDF</button><button class="btn" id="bCam">📷 Aggiungi foto</button><button class="btn" id="bGal">🖼️ Dalla galleria</button></div>
-        <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>
-        <div class="btns"><button class="btn" id="bIncolla">📋 Incolla il testo copiato (es. dalla galleria Xiaomi)</button></div>`}
+        ${pulsantiLettura()}
+        <div class="btns"><button class="btn primary" id="bLeggi">🔎 ${isEdit ? "Rileggi la bolletta" : "Leggi di nuovo"}</button></div>`}
       <div class="status" id="leggiStatus"></div>
       <details id="ocrBox" class="${lastText ? "" : "hidden"}"><summary>Testo letto dalla bolletta (per verifica)</summary><div class="btns"><button class="btn small" id="bCopiaTesto">📋 Copia il testo (da mandare in chat)</button></div><pre class="ocr">${esc(lastText)}</pre></details>
     </div>
@@ -1508,7 +1524,7 @@ async function renderAcquisisci(edit){
   $("#bFile").onclick = () => $("#fileInput").click();
   if($("#bGal")) $("#bGal").onclick = () => galInput().click();
   if($("#bLeggi")) $("#bLeggi").onclick = () => doLeggi();
-  if($("#bIncolla")) $("#bIncolla").onclick = incollaTesto;
+  bindPulsantiLettura();
   if($("#bCopiaTesto")) $("#bCopiaTesto").onclick = async () => { try{ await navigator.clipboard.writeText(lastText); toast("Testo copiato: incollalo nella chat."); }catch(e){ toast("Tieni premuto sul testo per copiarlo.", true); } };
   $("#view").addEventListener("input", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
   $("#view").addEventListener("change", () => { if(current === "acquisisci" && draft && $("#fEnte")){ readForm(); updPreview(); salvaBozza(); } });
@@ -1652,13 +1668,53 @@ async function perGoogle(docs){
     return [{name:f.name, mime:"image/jpeg", data:c.toDataURL("image/jpeg", 0.8).split(",")[1]}];
   }catch(e){ return [f]; }
 }
+/* Come leggere la bolletta: testo incollato, lettura del telefono, lettura con Google */
+const usaTel = () => settings().letturaTel !== false;
+const haGoogle = () => !!settings().geminiKey;
+const usaGoogle = () => haGoogle() && settings().incrocio !== false;
+function pulsantiLettura(){
+  const tel = usaTel(), goo = usaGoogle();
+  return `<div style="margin-top:12px"><label>Come leggere la bolletta</label>
+    <div class="modi">
+      <button class="modo" id="mIncolla"><span class="mi">📋</span>Inserisci testo acquisito</button>
+      <button class="modo${tel ? " on" : ""}" id="mTel"><span class="mi">📱</span>Acquisizione interna telefono</button>
+      <button class="modo${goo ? " on" : ""}${haGoogle() ? "" : " spento"}" id="mGoo"><span class="mi">🌐</span>Acquisizione con Google</button>
+    </div>
+    ${tel ? `<div class="bmodo">📱 <b>Telefono:</b> legge la foto o il PDF qui sul telefono, senza internet e senza limiti.</div>` : ""}
+    ${goo ? `<div class="bmodo">🌐 <b>Google:</b> rilegge la bolletta online (gratis, circa 20 al giorno)${tel ? " e la confronta con il telefono: i dati diversi diventano <b>gialli</b>" : ""}.</div>` : ""}
+    ${!tel && !goo ? `<div class="bmodo att">⚠️ Nessuna lettura accesa: tocca 📱 o 🌐, oppure scrivi tu i dati.</div>` : ""}</div>`;
+}
+function bindPulsantiLettura(){
+  if($("#mIncolla")) $("#mIncolla").onclick = incollaTesto;
+  if($("#mTel")) $("#mTel").onclick = () => { readForm(); saveSettings({letturaTel:!usaTel()}); renderAcquisisci(); };
+  if($("#mGoo")) $("#mGoo").onclick = () => {
+    if(!haGoogle()){ istruzioniGoogle(); return; }
+    readForm(); saveSettings({incrocio:!usaGoogle()}); renderAcquisisci();
+  };
+}
+function istruzioniGoogle(){
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box"><h3 style="margin:0 0 8px">🌐 Acquisizione con Google</h3>
+    <p style="margin:0 0 8px">Per usarla serve una <b>chiave gratuita di Google</b>. Si fa una volta sola:</p>
+    <ol style="margin:0 0 8px;padding-left:20px;line-height:1.55">
+      <li>Apri <b>aistudio.google.com</b> con il tuo account Google.</li>
+      <li>Tocca <b>Get API key</b> → <b>Crea chiave API</b> (meglio in un <b>progetto nuovo</b>).</li>
+      <li>Copia la chiave (inizia con <b>AIza</b>).</li>
+      <li>Nell'app: <b>Impostazioni → Lettura bollette</b>, incolla la chiave e tocca <b>Verifica</b>.</li>
+    </ol>
+    <p class="muted" style="margin:0 0 8px">È gratis, non serve la carta di credito. Se in casa qualcuno l'ha già messa, chiedi a lui: con l'invito arriva da sola.</p>
+    <div class="btns"><button class="btn" data-x="1">Chiudi</button><button class="btn primary" id="gVai">Apri Lettura bollette</button></div></div>`;
+  document.body.appendChild(m);
+  m.onclick = e => { if(e.target === m || (e.target.dataset && e.target.dataset.x)) m.remove(); };
+  $("#gVai").onclick = () => { m.remove(); readForm(); salvaBozza(); setView("impLett"); };
+}
 /* Testo copiato da un'altra app (es. "Estrai testo" della galleria Xiaomi): l'app lo legge al posto del suo */
 function incollaTesto(){
   const m = document.createElement("div"); m.className = "modal";
-  m.innerHTML = `<div class="box"><h3 style="margin:0 0 6px">📋 Incolla il testo</h3>
-    <p class="muted" style="margin:0 0 8px">1. Nella galleria apri la foto della bolletta e usa <b>Estrai testo → Copia</b>.<br>2. Torna qui, <b>tieni il dito</b> nel riquadro e tocca <b>Incolla</b>.</p>
+  m.innerHTML = `<div class="box"><h3 style="margin:0 0 8px">📋 Inserisci testo acquisito</h3>
     <textarea id="txIncolla" rows="9" style="width:100%;font-size:14px" placeholder="Tieni il dito qui e tocca «Incolla»"></textarea>
-    <div class="btns"><button class="btn" data-x="1">Annulla</button><button class="btn primary" id="txLeggi">🔎 Leggi questo testo</button></div></div>`;
+    <div class="btns"><button class="btn" data-x="1">Annulla</button><button class="btn primary" id="txLeggi">🔎 Leggi questo testo</button></div>
+    <p class="muted" style="margin:10px 0 0;line-height:1.5">Se un'altra app ti ha già dato il testo della bolletta (per esempio <b>Estrai testo</b> o <b>Copia testo</b> nella galleria, oppure Google Lens), copialo tutto, torna qui, <b>tieni il dito</b> nel riquadro, tocca <b>Incolla</b> e poi <b>Leggi questo testo</b>. L'app compila i dati da quel testo.</p></div>`;
   document.body.appendChild(m);
   m.onclick = e => { if(e.target === m || (e.target.dataset && e.target.dataset.x)) m.remove(); };
   try{ if(navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(t => { if(t && !$("#txIncolla").value) $("#txIncolla").value = t; }).catch(() => {}); }catch(e){}
@@ -1679,18 +1735,22 @@ async function doLeggi(testoIncollato){
   try{
     let docs = draft.pendingFiles;
     if(!docs.length && !testoIncollato){ docs = []; for(const f of giaSalvati.slice(0, 2)) docs.push({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)}); }
+    if(!testoIncollato && !usaTel() && !usaGoogle()){ throw new Error("Nessuna lettura accesa: tocca «📱 Acquisizione interna telefono» o «🌐 Acquisizione con Google»."); }
     lastText = testoIncollato || await testoDocumenti(docs, msg); draft._testo = lastText;
     let r = parseBolletta(lastText);
+    const telDati = !!testoIncollato || usaTel();
     // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
     if(r.prospettoRate && !draft._edit){ await avviaRate(docs, msg); return; }
     dubbiLettura = {}; modoLettura = "telefono";
-    if(docs.length && settings().geminiKey && settings().incrocio !== false){
-      msg("Letta sul telefono ✓ · controllo anche online…");
+    if(!testoIncollato && docs.length && usaGoogle()){
+      msg(telDati ? "Letta sul telefono ✓ · controllo anche con Google…" : "Leggo con Google…");
       try{
         const on = await Promise.race([geminiRead(await perGoogle(docs)), new Promise((_, no) => setTimeout(() => no(new Error("Google non ha risposto in tempo")), 75000))]);
-        const x = incrocia(r, on); r = x.r; dubbiLettura = x.dubbi; modoLettura = "incrocio";
-      }catch(e){ modoLettura = "solo telefono: online non riuscito – " + String(e.message || e).split("\n")[0].slice(0, 140); }
+        if(telDati){ const x = incrocia(r, on); r = x.r; dubbiLettura = x.dubbi; modoLettura = "incrocio"; }
+        else{ const base = Object.assign({}, r); r = Object.assign({}, base, on || {}); for(const k of Object.keys(r)) if(on && k in on && vuoto(on[k])) r[k] = ""; modoLettura = "google"; }
+      }catch(e){ modoLettura = (telDati ? "solo telefono" : "telefono, perché Google non ha risposto") + ": online non riuscito – " + String(e.message || e).split("\n")[0].slice(0, 140); }
     }
+    else if(testoIncollato) modoLettura = "testo incollato";
     // lo stato lo decide solo l'utente: se non l'ha toccato, una bolletta letta è sempre "da pagare"
     if(!draft._edit && !draft._statoScelto) draft.stato = "da";
     // in modifica completa solo i campi vuoti
@@ -1707,7 +1767,8 @@ async function doLeggi(testoIncollato){
     await renderAcquisisci();
     const manca = [!draft.ente && "ente", !draft.importo && "importo", !draft.scadenza && "scadenza"].filter(Boolean);
     const nd = Object.keys(dubbiLettura).length;
-    $("#leggiStatus").innerHTML = (trovati.length ? "✅ Dati compilati" + (modoLettura === "incrocio" ? " (telefono + online)" : modoLettura !== "telefono" ? " (" + esc(modoLettura) + ")" : "") + ": controllali prima di salvare." : "⚠️ Non sono riuscito a leggere i dati: scrivili tu.")
+    const comeL = modoLettura === "incrocio" ? " (telefono + Google)" : modoLettura === "google" ? " (con Google)" : modoLettura === "telefono" ? " (telefono)" : " (" + esc(modoLettura) + ")";
+    $("#leggiStatus").innerHTML = (manca.length === 3 || !trovati.length ? "⚠️ Ho letto poco o niente" + comeL + ": controlla la foto (dritta, intera, con luce) e riprova, oppure scrivi tu i dati." : "✅ Dati compilati" + comeL + ": controllali prima di salvare.")
       + (nd ? ` <b>Controlla i campi in giallo</b>: le due letture non erano d'accordo.` : "")
       + (manca.length && trovati.length ? `<div class="g-nota att" style="margin-top:8px">⚠️ Non ho trovato: <b>${manca.join(", ")}</b>. Scrivilo tu guardando la bolletta.</div>` : "")
       + (forseDom ? `<div class="g-nota" style="margin-top:8px">💡 Nella bolletta c'è una frase sull'addebito in conto. L'ho lasciata <b>da pagare</b>. Solo se sei sicuro che si paga da sola, tocca «Domiciliata».</div>` : "")
@@ -1809,56 +1870,71 @@ function chipsCase(){
 function bindChipsCase(ridisegna){ document.querySelectorAll("[data-fc]").forEach(b => b.onclick = () => { filtroCasa = b.dataset.fc; ridisegna(); }); }
 const nellaCasa = b => !filtroCasa || b.casa === filtroCasa;
 const pillCasa = b => piuCase() && b.casa ? `<span class="pill casa">${esc(casaInfo(b.casa).icona || "🏠")} ${esc(b.casa)}</span> ` : "";
-async function renderArchivio(filtro){
+let annoArch = "", ultimoAutoAgg = 0;
+async function renderArchivio(filtro, giaAggiornato){
   if(filtro && filtro.casa !== undefined) filtroCasa = filtro.casa;
-  const tutti = (await allBollette()).filter(nellaCasa), last = settings().ultimoAggiornamento, anno = String(new Date().getFullYear());
+  const tuttiCasa = (await allBollette()).filter(nellaCasa), last = settings().ultimoAggiornamento;
+  const anni = [...new Set(tuttiCasa.map(b => dataRif(b).slice(0, 4)).filter(Boolean))].sort().reverse();
+  if(annoArch && !anni.includes(annoArch)) annoArch = "";
+  const tutti = annoArch ? tuttiCasa.filter(b => dataRif(b).startsWith(annoArch)) : tuttiCasa;
+  const anno = annoArch || String(new Date().getFullYear());
   if(filtro && filtro.nuovi){ $("#hTitle").textContent = "Nuove bollette"; }
   $("#view").innerHTML = `
     ${nasBanner()}${await pendingBanner()}
     ${chipsCase()}
+    ${anni.length > 1 || annoArch ? `<div class="chips" id="chipsAnno"><button class="chip${!annoArch ? " on" : ""}" data-ya="">Tutti gli anni</button>${anni.map(y => `<button class="chip${annoArch === y ? " on" : ""}" data-ya="${y}">${y}</button>`).join("")}</div>` : ""}
     <div class="card" style="padding:10px">
-      <input id="q" type="search" placeholder="🔎 Cerca ente, numero, importo, anno…" value="${esc(searchQ)}">
-      <div class="btns" style="margin-top:8px"><button class="btn" id="bRefresh">🔄 Aggiorna dall'archivio</button></div>
+      <input id="q" type="search" placeholder="🔎 Cerca ente, numero, importo…" value="${esc(searchQ)}">
       <p class="muted" style="margin:8px 2px 0" id="cnt"></p>
     </div>
     <div id="list"></div>`;
   bindPending();
+  document.querySelectorAll("[data-ya]").forEach(b => b.onclick = () => { annoArch = b.dataset.ya; renderArchivio(filtro, true); });
+  // si aggiorna da solo dall'archivio (al massimo una volta al minuto), senza pulsante
+  if(!giaAggiornato && archivioPronto() && Date.now() - ultimoAutoAgg > 60000){
+    ultimoAutoAgg = Date.now();
+    refreshFromNas(true).then(() => { if(current === "archivio") renderArchivio(filtro, true); }).catch(() => {});
+  }
   const draw = () => {
     const words = searchQ.toLowerCase().split(/\s+/).filter(Boolean);
     if(filtro && filtro.nuovi){ const l = tutti.filter(nuovoPerMe); $("#list").innerHTML = l.map(entryHTML).join("") || `<div class="card muted">Nessuna bolletta nuova.</div>`; $("#cnt").textContent = ""; bindEntries(); return; }
     if(words.length){
       const rows = tutti.filter(a => { const h = [a.casa, a.ente, a.tipo, a.numero, a.note, a.codiceCliente, a.pod, a.scadenza, fmtDate(a.scadenza), periodoBreve(a), a.importo !== "" ? String(a.importo).replace(".", ",") : "", a.cartella].join(" ").toLowerCase(); return words.every(w => h.includes(w)); })
         .sort((x, y) => (dataRif(y)).localeCompare(dataRif(x)));
-      $("#cnt").textContent = `${rows.length} bollette trovate`;
+      $("#cnt").textContent = rows.length === 1 ? "1 bolletta trovata" : `${rows.length} bollette trovate`;
       $("#list").innerHTML = rows.slice(0, 300).map(entryHTML).join("") || `<div class="card muted">Nessun risultato.</div>`;
       bindEntries(); return;
     }
     const g = gruppiEnti(tutti);
-    $("#cnt").textContent = `${tutti.length} bollette di ${g.length} enti` + (last ? ` · aggiornato ${new Date(last).toLocaleString("it-IT", {dateStyle:"short", timeStyle:"short"})}` : "");
+    $("#cnt").textContent = `${tutti.length} ${tutti.length === 1 ? "bolletta" : "bollette"} di ${g.length} ${g.length === 1 ? "ente" : "enti"}${annoArch ? " nel " + annoArch : ""}` + (last ? ` · aggiornato ${new Date(last).toLocaleString("it-IT", {dateStyle:"short", timeStyle:"short"})}` : "");
     $("#list").innerHTML = g.map(x => {
       const ti = tipoInfo(x.tipo), dp = x.l.filter(daPagare).length, spesa = x.l.filter(b => dataRif(b).startsWith(anno)).reduce((t, b) => t + (Number(b.importo) || 0), 0), nv = x.l.some(nuovoPerMe);
       return `<div class="entry${nv ? " nuovo" : ""}" data-ente="${esc(x.k)}"><div class="ico" style="background:${ti.bg}">${ti.ic}</div>
         <div class="txt"><div class="t1">${esc(x.ente)}${nv ? ` <span class="pill nuovo">NUOVO</span>` : ""}</div><div class="t2">${piuCase() && !filtroCasa && x.casa ? esc((casaInfo(x.casa).icona || "🏠") + " " + x.casa) + " · " : ""}${esc(x.tipo || "—")} · ${x.l.length} ${x.l.length === 1 ? "bolletta" : "bollette"}</div></div>
         <div class="r"><b>${spesa ? esc(euro(spesa)) : "—"}</b><span class="muted">nel ${anno}</span>${dp ? `<br><span class="pill warn">${dp} da pagare</span>` : ""}</div></div>`;
-    }).join("") || `<div class="card muted">Nessuna bolletta: inizia da Acquisisci${archivioPronto() ? "" : ", dopo aver scelto dove salvare (Impostazioni)"}.</div>`;
+    }).join("") || `<div class="card muted">${annoArch ? "Nessuna bolletta nel " + annoArch + "." : `Nessuna bolletta: inizia da Acquisisci${archivioPronto() ? "" : ", dopo aver scelto dove salvare (Impostazioni)"}.`}</div>`;
     document.querySelectorAll("[data-ente]").forEach(e => e.onclick = () => setView("ente", e.dataset.ente));
   };
-  bindChipsCase(() => renderArchivio(filtro && filtro.nuovi ? filtro : undefined));
+  bindChipsCase(() => renderArchivio(filtro && filtro.nuovi ? filtro : undefined, true));
   $("#q").oninput = e => { searchQ = e.target.value; draw(); };
-  $("#bRefresh").onclick = async () => { const b = $("#bRefresh"); b.disabled = true; b.innerHTML = `<span class="spinner"></span>Aggiorno…`; await refreshFromNas(false); renderArchivio(filtro); };
   draw();
 }
 async function renderEnte(k){
-  const l = (await allBollette()).filter(b => cartellaEnte(b) === k).sort((x, y) => (y.scadenza || dataRif(y)).localeCompare(x.scadenza || dataRif(x)));
-  if(!l.length){ setView("archivio", undefined, true); return; }
-  const b0 = l[0], ti = tipoInfo(b0.tipo), anno = String(new Date().getFullYear());
-  const spesa = l.filter(b => dataRif(b).startsWith(anno)).reduce((t, b) => t + (Number(b.importo) || 0), 0);
+  const tutte = (await allBollette()).filter(b => cartellaEnte(b) === k).sort((x, y) => (y.scadenza || dataRif(y)).localeCompare(x.scadenza || dataRif(x)));
+  if(!tutte.length){ setView("archivio", undefined, true); return; }
+  const l = annoArch ? tutte.filter(b => dataRif(b).startsWith(annoArch)) : tutte;
+  const b0 = tutte[0], ti = tipoInfo(b0.tipo), anno = annoArch || String(new Date().getFullYear());
+  const spesa = tutte.filter(b => dataRif(b).startsWith(anno)).reduce((t, b) => t + (Number(b.importo) || 0), 0);
   const conImp = l.filter(b => Number(b.importo) > 0), media = conImp.length ? conImp.reduce((t, b) => t + Number(b.importo), 0) / conImp.length : 0;
+  const dp = l.filter(daPagare);
   $("#hTitle").textContent = b0.ente || k;
   $("#view").innerHTML = `
-    <div class="card" style="display:flex;gap:12px;align-items:center"><div class="ico" style="width:50px;height:50px;border-radius:12px;background:${ti.bg};display:flex;align-items:center;justify-content:center;font-size:25px;flex:none">${ti.ic}</div>
-      <div style="flex:1;min-width:0"><b>${esc(b0.ente || k)}</b>${b0.tipo ? " · " + esc(normTipo(b0.tipo)) : ""}${piuCase() && b0.casa ? `<div class="muted">${esc((casaInfo(b0.casa).icona || "🏠") + " " + b0.casa)}</div>` : ""}<div class="muted">Spesa ${anno}: ${esc(euro(spesa) || "0 €")}${media ? " · media " + esc(euro(media)) + " a bolletta" : ""}</div>${b0.codiceCliente ? `<div class="muted">Codice cliente ${esc(b0.codiceCliente)}</div>` : ""}</div></div>
-    ${l.map(entryHTML).join("")}`;
+    <div class="card resoconto"><div class="rtit">📊 RESOCONTO</div>
+      <div style="display:flex;gap:12px;align-items:center"><div class="ico" style="width:46px;height:46px;border-radius:12px;background:${ti.bg};display:flex;align-items:center;justify-content:center;font-size:24px;flex:none">${ti.ic}</div>
+      <div style="flex:1;min-width:0"><b>${esc(b0.ente || k)}</b>${b0.tipo ? " · " + esc(normTipo(b0.tipo)) : ""}${piuCase() && b0.casa ? `<div class="muted">${esc((casaInfo(b0.casa).icona || "🏠") + " " + b0.casa)}</div>` : ""}${b0.codiceCliente ? `<div class="muted">Codice cliente ${esc(b0.codiceCliente)}</div>` : ""}</div></div>
+      <div class="rnum"><div><b>${esc(euro(spesa) || "0 €")}</b>spesa ${anno}</div><div><b>${media ? esc(euro(media)) : "—"}</b>media a bolletta</div><div><b>${dp.length}</b>da pagare${dp.length ? `<br>${esc(euro(dp.reduce((t, b) => t + (Number(b.importo) || 0), 0)))}` : ""}</div></div></div>
+    <div class="sec">🧾 Bollette${annoArch ? " del " + annoArch : ""} (${l.length})</div>
+    ${l.map(entryHTML).join("") || `<div class="card muted">Nessuna bolletta nel ${annoArch}.</div>`}`;
   bindEntries();
 }
 function entryHTML(a){
@@ -2687,12 +2763,12 @@ function renderGuida(){
       schermo("Acquisisci", `<div class="g-card"><div class="g-row">${btn("Svuota")}${btn("🖨️ Stampa")}${btn("💾 Salva", true, true)}</div></div>`))}
     ${nota("Se l'app si chiude prima di salvare, la bolletta non si perde: riaprendo Acquisisci la ritrovi.")}`),
 
-  cap("incolla", "📋", "Leggere con il testo della galleria Xiaomi", `
-    <p>Se la galleria del telefono sa estrarre il testo da una foto (Xiaomi: <b>Estrai testo</b>), puoi dare quel testo all'app.</p>
-    ${passo(1, "In <b>Acquisisci</b> aggiungi la foto della bolletta come sempre (serve per l'archivio).")}
-    ${passo(2, "Nella <b>galleria</b> apri la stessa foto, tocca <b>Estrai testo</b> e poi <b>Copia</b> (tutto il testo).")}
-    ${passo(3, "Torna nell'app e tocca <b>📋 Incolla il testo copiato</b> (sotto «Leggi di nuovo»).")}
-    ${passo(4, "Tieni il dito nel riquadro, tocca <b>Incolla</b> e poi <b>🔎 Leggi questo testo</b>. Poi controlla i dati come sempre.")}`),
+  cap("comeleggere", "🔎", "Come leggere la bolletta: i tre pulsanti", `
+    <p>In <b>Acquisisci</b>, sotto «Come leggere la bolletta», ci sono tre pulsanti.</p>
+    ${passo(1, "<b>📋 Inserisci testo acquisito</b>: se un'altra app ti ha già dato il testo della bolletta (galleria «Estrai testo», Google Lens…), copialo, tocca questo pulsante, tieni il dito nel riquadro, tocca <b>Incolla</b> e poi <b>Leggi questo testo</b>.")}
+    ${passo(2, "<b>📱 Acquisizione interna telefono</b>: il telefono legge la foto o il PDF da solo, senza internet. Quando è acceso è <b>verde</b> e sotto c'è scritto cosa fa. Tocca per accenderlo o spegnerlo.")}
+    ${passo(3, "<b>🌐 Acquisizione con Google</b>: Google rilegge la bolletta online. Se è acceso anche il telefono, l'app confronta le due letture e i dati diversi diventano <b>gialli</b>. Se è <b>grigio</b> manca la chiave gratuita: toccalo e trovi le istruzioni.")}
+    ${nota("Consigliato: tutti e due accesi. Dopo aver cambiato, tocca <b>Leggi di nuovo</b> per rileggere.")}`),
 
   cap("controllo", "✅", "Controllare i dati letti", `
     ${passo(1, "Guarda soprattutto <b>ente</b>, <b>importo</b> e <b>scadenza</b>: sono quelli che servono per gli avvisi.",
@@ -2763,7 +2839,7 @@ function renderGuida(){
     <div class="g-faq"><b>I dati letti sono sbagliati</b><br>Correggili a mano prima di salvare. Con le foto: luce buona, foglio piatto, telefono dritto. Il PDF dall'email si legge sempre meglio di una foto.</div>
     <div class="g-faq"><b>Non arrivano le notifiche</b><br>Impostazioni → Avvisi → <b>Invia notifica di prova</b>. Se non arriva, nelle impostazioni del telefono consenti le notifiche per «Bollette».</div>
     <div class="g-faq"><b>Non vedo «Bollette» in Condividi</b><br>Scorri l'elenco fino in fondo e tocca <b>Altro</b>. In alternativa salva il PDF nel telefono e usa <b>Acquisisci → Scegli il PDF</b>.</div>
-    <div class="g-faq"><b>Non trovo una bolletta</b><br>In Archivio tocca <b>🔄 Aggiorna dall'archivio</b>, poi cerca con una sola parola.</div>`)
+    <div class="g-faq"><b>Non trovo una bolletta</b><br>In Archivio tocca <b>Tutte</b> e <b>Tutti gli anni</b>, poi cerca con una sola parola. L'elenco si aggiorna da solo quando apri l'Archivio.</div>`)
   ];
   $("#view").innerHTML = `<div class="card"><h2>📖 Guida all'uso</h2><p class="muted">Tocca un capitolo per aprirlo. Nelle immagini il punto da toccare è evidenziato in <span class="g-hl">arancione</span>.</p></div>${capitoli.join("")}`;
   document.querySelectorAll(".g-cap").forEach(d => d.addEventListener("toggle", () => { if(d.open){ document.querySelectorAll(".g-cap").forEach(x => { if(x !== d) x.open = false; }); setTimeout(() => d.scrollIntoView({behavior:"smooth", block:"start"}), 50); } }));
