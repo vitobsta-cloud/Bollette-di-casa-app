@@ -661,7 +661,7 @@ function parseBolletta(text){
     }
   }
   if(!r.periodoDa){
-    const DR = new RegExp("^dal\\s+(?:" + DATA_RX + ")\\s*$", "i"), AR = new RegExp("^al\\s+(?:" + DATA_RX + ")\\s*$", "i");
+    const DR = new RegExp("^dal\\s+(?:" + DATA_RX + ")\\s*$", "i"), AR = new RegExp("^al\\s*(?:" + DATA_RX + ")\\s*$", "i");
     for(let i = 0; i < righe.length && !r.periodoDa; i++){
       if(!DR.test(righe[i]) || /annu|12\s*mesi/i.test((righe[i - 1] || "") + " " + righe[i])) continue;
       for(let k = i + 1; k <= i + 12 && k < righe.length; k++){
@@ -684,13 +684,13 @@ function parseBolletta(text){
   }
 
   // ---- contratto ----
-  const pod = T.match(/\b[I1l|]T\s?\d{3}\s?E\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = "IT" + pod[0].replace(/\s/g, "").toUpperCase().slice(2);
+  const pod = T.match(/\b[I1l|]T\s?\d{3}\s?[A-Z]\s?\d{7,9}[A-Z]?\b/i); if(pod) r.pod = "IT" + pod[0].replace(/\s/g, "").toUpperCase().slice(2);
   if(!r.pod){ const pn = dopo(/codice\s+pod|\bpod\b\s*:/i, /(?:^|\D)(\d{12,20})(?!\d)/, 2); if(pn) r.pod = pn.v[1]; }
   const pdr = T.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i); if(pdr) r.pod = r.pod ? r.pod + " · PDR " + pdr[1] : pdr[1];
   const kCli = /codice\s+(?:cliente|utente|utenza)|cod\.\s*cliente|numero\s+cliente|n\.\s*cliente|n\s?[°º®'’*o]?\s*cliente|id\s+cliente|codice\s+contratto/i;
   const cc = dopo(kCli, /(?:^|[^\dA-Z])(\d{6,15})(?![\dA-Z])/i, 3) || dopo(kCli, /\b([A-Z0-9][A-Z0-9 ]{3,18}\d)\b/i, 1);
   if(cc) r.codiceCliente = cc.v[1].trim();
-  const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s+)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 6);
+  const ind = dopo(/forniamo\s+(?:energia|gas)\s+in|indirizzo\s+(?:di\s*)?fornitura|luogo\s+di\s+fornitura|fornitura\s+(?:in|sita\s+in)|ubicazione\s+(?:della\s+)?fornitura|indirizzo\s+dell['’]utenza/i, /((?:via|viale|v\.le|v\.|v(?=\s)|piazza|p\.za|corso|c\.so|largo|strada|contrada|c\.da|vico|vicolo|località|loc\.)\s+[^\n]{3,70})/i, 6);
   if(ind){
     // solo la colonna dell'indirizzo: nella riga originale le colonne sono separate da due o più spazi
     const g = grezze[ind.i] || "", inizio = g.toLowerCase().indexOf(ind.v[1].slice(0, 6).toLowerCase());
@@ -775,7 +775,7 @@ function parseBolletta(text){
     if(buona) r.scadenza = buona.d; else if(r.scadenza && (escluse.has(r.scadenza) || !entro(r.scadenza))) r.scadenza = "";
   }
   // prospetto delle rate del condominio (tabella con più condòmini): gli importi non si indovinano dal testo
-  if(/prospetto\s+(?:delle\s+)?rate|piano\s+(?:delle\s+)?rate|riparto\s+rate|rate\s+preventivo/i.test(T) || (/condomin/i.test(T) && (T.match(/\b\d\s*[aª°à²³è]?\s*rata\b/gi) || []).length >= 3)){
+  if(/condomin/i.test(T) && !/servizio\s+idrico|ciclo\s+idrico|\bkwh\b|\bsmc\b/i.test(T) && (/prospetto\s+(?:delle\s+)?rate\b|piano\s+(?:delle\s+)?rate\b|riparto\s+rate\b|rate\s+preventivo/i.test(T) || (T.match(/\b\d\s*[aª°à²³è]?\s*rata\b/gi) || []).length >= 3)){
     r.prospettoRate = true; r.tipo = "Condominio"; r.importo = ""; r.scadenza = "";
   }
   // date nel futuro lontano o prima del 2000: scartate
@@ -1279,8 +1279,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.31";
+const VERSIONE = "v1.32";
 const CRONOLOGIA = [
+  {v:"v1.32", d:"22/11/2026", n:["Corretto: una bolletta normale (es. A2A acqua con «piano rateale») veniva presa per un prospetto delle rate del condominio.", "Nella schermata delle rate c'è «🧾 Non è un prospetto di rate: è una bolletta normale».", "Lettura: POD dell'acqua con lettera (IT006A…), «al20 Giugno» e «Indirizzo difornitura» scritti attaccati."]},
   {v:"v1.31", d:"22/11/2026", n:["Acquisisci: «✍️ Scrivi i dati a mano» per inserire una bolletta senza foto.", "Nella scheda di una bolletta senza documenti c'è «📎 Aggiungi la foto o il PDF»."]},
   {v:"v1.30", d:"22/11/2026", n:["In Modifica si possono vedere le foto e i PDF già salvati (tocca il documento: «👁️ vedi»), per controllare i dati senza uscire.", "Le foto si aprono dentro l'app: tocca la foto per ingrandirla, scorri per muoverti, «Chiudi» per tornare."]},
   {v:"v1.29", d:"22/11/2026", n:["«Sembra già archiviata» compare solo se coincide anche l'importo o la scadenza: un numero di fattura uguale da solo non basta (poteva essere letto male).", "Grafici: c'è «Tutti gli anni», con la spesa totale, la media all'anno e una barra per ogni anno."]},
@@ -1776,7 +1777,8 @@ async function doLeggi(testoIncollato){
     let r = parseBolletta(lastText);
     const telDati = !!testoIncollato || usaTel();
     // prospetto delle rate del condominio: niente importi indovinati dal telefono, si cercano le righe delle case
-    if(r.prospettoRate && !draft._edit){ await avviaRate(docs, msg); return; }
+    if(r.prospettoRate && !draft._edit && !draft._nonRate){ await avviaRate(docs, msg); return; }
+    if(r.prospettoRate){ delete r.prospettoRate; r.tipo = ""; }
     dubbiLettura = {}; modoLettura = "telefono";
     if(!testoIncollato && docs.length && usaGoogle()){
       msg(telDati ? "Letta sul telefono ✓ · controllo anche con Google…" : "Leggo con Google…");
@@ -1840,7 +1842,7 @@ async function doSalva(){
   a.pendingFiles.forEach(f => { if(f.mime === "application/pdf"){ np++; f.name = np === 1 ? "bolletta.pdf" : `bolletta_${np}.pdf`; } else { ni++; f.name = `bolletta_${ni}.${extOf(f.name) || "jpg"}`; } });
   const spostare = a._edit && (a._casaOrig || "") !== (a.casa || "");
   const senzaDoc = !a.pendingFiles.length && !(a.files || []).length;
-  delete a._edit; delete a._casaOrig; delete a._mano; a.daCaricare = true;
+  delete a._edit; delete a._casaOrig; delete a._mano; delete a._nonRate; a.daCaricare = true;
   const b = $("#bSalva"); b.disabled = true; b.innerHTML = `<span class="spinner"></span>Salvo…`;
   let msg;
   try{
@@ -2336,6 +2338,7 @@ function cardRate(){
     ${R.righe.map((h, i) => !draft.casa || h.casa === draft.casa ? riga(h, i) : "").join("")}
     <div class="dove">📁 Ogni rata va in: <b>Casa / ${esc(safeName(R.condominio || "Condominio"))} - Condominio / data scad. importo</b>, con la foto del prospetto.</div>
     <div class="btns"><button class="btn" id="rRiprova">🔄 Rileggi</button><button class="btn" id="rNomi">✏️ Nomi</button><button class="btn primary" id="rSalva">💾 Salva ${n} rate</button></div>
+    <div class="btns"><button class="btn" id="rNonRate">🧾 Non è un prospetto di rate: è una bolletta normale</button></div>
     <div class="btns"><button class="btn danger" id="rDaCapo">🗑️ Ricomincia da capo</button></div><div id="rOut"></div></div>`;
 }
 function leggiRate(){
@@ -2346,6 +2349,7 @@ function leggiRate(){
 }
 function bindCardRate(){
   const R = draft.rate, ij = v => v.split("-").map(Number);
+  if($("#rNonRate")) $("#rNonRate").onclick = () => { draft.rate = null; draft._nonRate = true; salvaBozza(); doLeggi(); };
   if($("#rDaCapo")) $("#rDaCapo").onclick = async () => { if(await conferma("Togliere le foto e ricominciare da capo? Non viene salvato niente.", "Ricomincia")){ draft = newDraft(); lastText = ""; dubbiLettura = {}; cancellaBozza(); renderAcquisisci(); } };
   if($("#rCerca")) $("#rCerca").onclick = async () => {
     const l = caseCasa().map((c, i) => Object.assign({}, c, {nomeCond:(document.querySelector(`[data-nc="${i}"]`).value || "").trim().toUpperCase()}));
