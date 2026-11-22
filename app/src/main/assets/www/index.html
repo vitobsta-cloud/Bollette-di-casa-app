@@ -510,10 +510,13 @@ const nomeEnte = b => [b.ente || "Ente sconosciuto", b.tipo ? normTipo(b.tipo) :
 function folderFor(b){
   const data = (b.scadenza || b.emessa || todayISO()).replace(/-/g, "_");
   const imp = Number(b.importo) > 0 ? " " + Number(b.importo).toFixed(2).replace(".", ",") + "€" : Number(b.importo) < 0 ? " rimborso " + Math.abs(Number(b.importo)).toFixed(2).replace(".", ",") + "€" : "";
-  return `${b.casa ? safeName(b.casa) + "/" : ""}${safeName(nomeEnte(b))}/${data}${b.scadenza ? " scad." : ""}${imp}`;
+  // Casa / Ente - Tipo / Anno / data scad. importo  (una cartella per ogni anno)
+  return `${b.casa ? safeName(b.casa) + "/" : ""}${safeName(nomeEnte(b))}/${data.slice(0, 4)}/${data}${b.scadenza ? " scad." : ""}${imp}`;
 }
 /* cartella del fornitore (tutto tranne l'ultima parte): "Casa mia/Enel Energia - Luce" */
-const cartellaEnte = b => { const p = (b.cartella || "").split("/").filter(Boolean); return p.length > 1 ? p.slice(0, -1).join("/") : nomeEnte(b); };
+const cartellaEnte = b => { const p = (b.cartella || "").split("/").filter(Boolean); if(p.length > 2 && /^\d{4}$/.test(p[p.length - 2])) p.splice(p.length - 2, 1); return p.length > 1 ? p.slice(0, -1).join("/") : nomeEnte(b); };
+// la bolletta è già nella cartella del suo anno?
+const inCartellaAnno = b => { const p = (b.cartella || "").split("/").filter(Boolean); return p.length > 2 && /^\d{4}$/.test(p[p.length - 2]); };
 const descrPeriodo = b => b.periodoDa && b.periodoA ? `${fmtDate(b.periodoDa)} – ${fmtDate(b.periodoA)}` : b.periodoDa ? "dal " + fmtDate(b.periodoDa) : "";
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -997,8 +1000,11 @@ const CAMPI = ["casa","ente","tipo","importo","scadenza","emessa","numero","peri
 /* Una cartella dell'archivio → una bolletta. Se manca bolletta.json, i dati vengono dal nome delle cartelle */
 function entryFromFolder(f){
   // Casa/Ente - Tipo/data  (oppure, prima delle case: Ente - Tipo/data)
+  // Casa/Ente - Tipo/Anno/data, oppure (prima degli anni) Casa/Ente - Tipo/data
   const parts = f.path.split("/").filter(Boolean), last = parts[parts.length - 1] || "";
-  const primo = parts.length > 1 ? parts[parts.length - 2] : "", casa = parts.length > 2 ? parts[0] : "";
+  const conAnno = parts.length > 2 && /^\d{4}$/.test(parts[parts.length - 2]);
+  const sopra = conAnno ? parts.slice(0, -2) : parts.slice(0, -1);
+  const primo = sopra.length ? sopra[sopra.length - 1] : "", casa = sopra.length > 1 ? sopra[0] : "";
   const b = newDraft(); delete b.pendingFiles;
   Object.assign(b, {id:f.path, cartella:f.path, casa, files:(f.files || []).map(x => ({name:x.name, size:x.size})), hasInfo:false});
   const sep = primo.lastIndexOf(" - ");
@@ -1258,6 +1264,37 @@ async function scriviCase(caseL, tipiL){
   saveSettings({case:c, tipiExtra:t});
 }
 /* Sposta una bolletta in un'altra cartella (casa nuova): copia i file, scrive bolletta.json, cancella la vecchia */
+/* Riordino: mette ogni bolletta nella cartella del suo anno, senza cambiare il nome della sua cartella */
+async function riordinaPerAnni(avanza){
+  const tutte = (await allBollette()).filter(b => !b.daCaricare && b.cartella && !inCartellaAnno(b));
+  let fatte = 0, errori = 0;
+  for(const b of tutte){
+    const p = b.cartella.split("/").filter(Boolean), ultimo = p[p.length - 1];
+    const m = ultimo.match(/^(\d{4})[_\-.]\d{2}[_\-.]\d{2}/), anno = m ? m[1] : (dataRif(b) || "").slice(0, 4);
+    if(!/^\d{4}$/.test(anno)){ errori++; continue; }
+    const dest = [...p.slice(0, -1), anno, ultimo].join("/");
+    avanza && avanza(`${fatte + errori + 1} di ${tutte.length}: ${b.ente || ""} ${anno}`);
+    try{ await spostaIn(b, dest); fatte++; }catch(e){ errori++; }
+  }
+  return {fatte, errori, totale:tutte.length};
+}
+async function spostaIn(b, dest){
+  const tutte = await allBollette(); let c = dest, n = 2;
+  while(tutte.some(x => x.id !== b.id && x.cartella.toLowerCase() === c.toLowerCase())) c = `${dest} (${n++})`;
+  const nuova = Object.assign({}, b, {cartella:c, id:c, files:[]});
+  for(const f of (b.files || [])){
+    if(f.name === INFO_FILE) continue;
+    const data = await call("nasRead", b.cartella + "/" + f.name);
+    const used = await call("nasWriteFile", c, f.name, data);
+    nuova.files.push({name:used, size:f.size});
+  }
+  await call("nasWriteText", c, INFO_FILE, infoJSON(nuova));
+  nuova.hasInfo = true;
+  // la vecchia si cancella solo dopo che la nuova è stata scritta tutta
+  await call("nasDeleteFolder", b.cartella);
+  await delBolletta(b.id); await putBolletta(nuova);
+  return nuova;
+}
 async function spostaBolletta(b, campi, avanza){
   const nuova = Object.assign({}, b, campi);
   const tutte = await allBollette(); let base = folderFor(nuova), c = base, n = 2;
@@ -1309,8 +1346,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.33";
+const VERSIONE = "v1.34";
 const CRONOLOGIA = [
+  {v:"v1.34", d:"22/11/2026", n:["Archivio sul NAS diviso per anni: Casa / Fornitore / Anno / bolletta (es. WindTre - Telefono / 2024 / 2024_01_21 scad. 29,90€).", "Le bollette nuove vanno subito nella cartella del loro anno; per quelle già salvate, in Archivio c'è «🗂️ Metti in ordine per anno»."]},
   {v:"v1.33", d:"22/11/2026", n:["Con più foto della stessa bolletta, la lettura con Google ora le guarda tutte (prima solo la prima).", "Quando rileggi, i dati letti in automatico vengono sostituiti tutti (prima restavano quelli vecchi sbagliati).", "Pronta per la nuova app (2.0): il telefono legge riquadro per riquadro, come la galleria Xiaomi, e tiene la lettura più completa.", "Bollette a credito (rimborso): in Pagamento c'è «💚 A credito (rimborso)»; l'importo si scrive senza il meno, non serve la scadenza e non compare tra quelle da pagare. Nei grafici abbassa la spesa.", "L'importo si scrive con la virgola (es. 78,56).", "Incollando il testo senza foto, il modulo dei dati ora compare."]},
   {v:"v1.32", d:"22/11/2026", n:["Corretto: una bolletta normale (es. A2A acqua con «piano rateale») veniva presa per un prospetto delle rate del condominio.", "Nella schermata delle rate c'è «🧾 Non è un prospetto di rate: è una bolletta normale».", "Lettura: POD dell'acqua con lettera (IT006A…), «al20 Giugno» e «Indirizzo difornitura» scritti attaccati."]},
   {v:"v1.31", d:"22/11/2026", n:["Acquisisci: «✍️ Scrivi i dati a mano» per inserire una bolletta senza foto.", "Nella scheda di una bolletta senza documenti c'è «📎 Aggiungi la foto o il PDF»."]},
@@ -1964,8 +2002,10 @@ async function renderArchivio(filtro, giaAggiornato){
   const tutti = annoArch ? tuttiCasa.filter(b => dataRif(b).startsWith(annoArch)) : tuttiCasa;
   const anno = annoArch || String(new Date().getFullYear());
   if(filtro && filtro.nuovi){ $("#hTitle").textContent = "Nuove bollette"; }
+  const daRiordinare = (await allBollette()).filter(b => !b.daCaricare && b.cartella && !inCartellaAnno(b)).length;
   $("#view").innerHTML = `
     ${nasBanner()}${await pendingBanner()}
+    ${daRiordinare && archivioPronto() ? `<div class="card" style="background:#fff7ed;border:1.5px solid #fdba74"><b>🗂️ Cartelle per anno</b><p style="margin:6px 0 8px">Ci sono <b>${daRiordinare}</b> bollette non ancora nella cartella del loro anno (es. <i>WindTre - Telefono / 2024 / …</i>). Le metto in ordine io: i file non cambiano, cambia solo la cartella.</p><div class="btns"><button class="btn primary" id="bRiordina">🗂️ Metti in ordine per anno</button></div></div>` : ""}
     ${chipsCase()}
     ${anni.length > 1 || annoArch ? `<div class="chips" id="chipsAnno"><button class="chip${!annoArch ? " on" : ""}" data-ya="">Tutti gli anni</button>${anni.map(y => `<button class="chip${annoArch === y ? " on" : ""}" data-ya="${y}">${y}</button>`).join("")}</div>` : ""}
     <div class="card" style="padding:10px">
@@ -1974,6 +2014,18 @@ async function renderArchivio(filtro, giaAggiornato){
     </div>
     <div id="list"></div>`;
   bindPending();
+  if($("#bRiordina")) $("#bRiordina").onclick = async () => {
+    if(!(await conferma(`Mettere ${daRiordinare} bollette nelle cartelle dei loro anni?\n\nSul NAS ogni bolletta viene copiata nella cartella dell'anno e poi tolta da quella vecchia. Ci vuole qualche minuto: tieni l'app aperta e il telefono sul Wi-Fi di casa.`, "Metti in ordine"))) return;
+    const m = document.createElement("div"); m.className = "modal";
+    m.innerHTML = `<div class="box"><h3 style="margin:0 0 8px">🗂️ Metto in ordine per anno…</h3><div class="status"><span class="spinner"></span><span id="riordOut">Inizio…</span></div><p class="muted" style="margin:8px 0 0">Non chiudere l'app.</p></div>`;
+    document.body.appendChild(m);
+    let r;
+    try{ r = await riordinaPerAnni(t => { const o = document.getElementById("riordOut"); if(o) o.textContent = t; }); }
+    catch(e){ r = {fatte:0, errori:1, totale:daRiordinare}; }
+    m.remove(); syncReminders();
+    avviso(`🗂️ Archivio in ordine per anno\n\n✅ ${r.fatte} ${r.fatte === 1 ? "bolletta spostata" : "bollette spostate"} nella cartella del loro anno.` + (r.errori ? `\n⚠️ ${r.errori} non spostate (riprova più tardi: restano dove erano, non si perde niente).` : ""));
+    await refreshFromNas(true); renderArchivio(filtro, true);
+  };
   document.querySelectorAll("[data-ya]").forEach(b => b.onclick = () => { annoArch = b.dataset.ya; renderArchivio(filtro, true); });
   // si aggiorna da solo dall'archivio (al massimo una volta al minuto), senza pulsante
   if(!giaAggiornato && archivioPronto() && Date.now() - ultimoAutoAgg > 60000){
@@ -2826,7 +2878,7 @@ function renderGuida(){
   const home = tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta") + tile("🗂️", "#e6eef8", "Archivio", "Le bollette divise per ente") + tile("⏰", "#f8e6dc", "Scadenze", "Bollette da pagare e avvisi", false, ` <span class="g-cnt">2</span>`);
   const capitoli = [
   cap("base", "🏠", "Le cose da sapere prima di iniziare", `
-    <p>L'app tiene in ordine le <b>bollette di casa</b>: luce, gas, acqua, rifiuti, telefono, condominio. Ogni bolletta va nella <b>cartella del suo ente</b> nell'archivio sul NAS (per esempio <i>Enel Energia - Luce</i>), con dentro il PDF e i dati.</p>
+    <p>L'app tiene in ordine le <b>bollette di casa</b>: luce, gas, acqua, rifiuti, telefono, condominio. Ogni bolletta va nella <b>cartella del suo ente</b> nell'archivio sul NAS, divisa <b>per anno</b> (per esempio <i>Casa mia / Enel Energia - Luce / 2026 / 2026_12_05 scad. 87,40€</i>), con dentro il PDF e i dati.</p>
     ${passo(1, "In alto ci sono <b>due pallini</b>. Il primo dice se l'archivio è raggiungibile, il secondo quando l'elenco è stato aggiornato.<br>🟢 verde = tutto a posto · 🔵 blu = sta lavorando · 🟠 arancio = elenco vecchio · 🔴 = archivio non raggiungibile (sei fuori casa o il Wi-Fi è spento).",
       schermo("Bollette di casa", `<div class="g-hero"><b>Da pagare</b>: 2 bollette · 151,60 €<br>Spesa 2026: 2.862,09 €</div>`, true))}
     ${passo(2, "Dalla <b>Home</b> si va dappertutto: <b>Acquisisci</b> per una bolletta nuova, <b>Archivio</b> per ritrovarle, <b>Scadenze</b> per quelle da pagare, <b>Grafici</b> per le spese, <b>Impostazioni</b> per tutto il resto.", schermo("Bollette di casa", home, true))}
@@ -2840,7 +2892,7 @@ function renderGuida(){
     ${nota("Se nell'elenco di Condividi non vedi «Bollette», scorri fino in fondo e tocca <b>Altro</b> o <b>Altre app</b>.")}`),
 
   cap("case", "🏠", "Più case (la tua, quella della mamma…)", `
-    <p>Le bollette si dividono <b>per casa</b>. Nell'archivio ogni casa ha la sua cartella, e dentro ci sono le cartelle dei fornitori: <i>Casa mia → Enel Energia - Luce → bolletta</i>.</p>
+    <p>Le bollette si dividono <b>per casa</b>. Nell'archivio ogni casa ha la sua cartella, e dentro ci sono le cartelle dei fornitori: <i>Casa mia → Enel Energia - Luce → 2026 → bolletta</i>.</p>
     ${passo(1, "Vai in <b>Impostazioni → Le mie case</b> e tocca <b>➕ Aggiungi una casa</b>. Scrivi il nome (es. <i>Casa mamma</i>), l'indirizzo e scegli un'icona, poi <b>Salva</b>.",
       schermo("Le mie case", tile("🏠", "#e0f2fe", "Casa mia", "Via San Bernardino 45 · 31 bollette") + tile("👵", "#e0f2fe", "Casa mamma", "Via Roma 12, Bari · 9 bollette") + tile("➕", "#f1f5f9", "Aggiungi una casa", "es. casa al mare", true)))}
     ${passo(2, "In <b>Acquisisci</b> l'app chiede per prima cosa <b>«Per quale casa?»</b>: tocca la casa giusta. Quando la bolletta arriva con Condividi, l'app prova a riconoscere la casa dall'indirizzo, dal codice cliente o dal POD; se non ci riesce te lo chiede.")}
@@ -2872,7 +2924,7 @@ function renderGuida(){
     ${passo(2, "Un campo <b>giallo</b> vuol dire che la lettura del telefono e quella online non erano d'accordo: sotto c'è scritto cosa aveva letto il telefono. Guarda la bolletta e correggi se serve.")}
     ${passo(3, "Sotto <b>Pagamento</b> scegli: <b>Da pagare</b>, <b>Domiciliata</b> (si paga da sola sul conto), <b>Già pagata</b> o <b>💚 A credito</b> (bolletta di rimborso: l'importo si scrive senza il meno). L'app parte sempre da «Da pagare»: «Domiciliata» lo scegli tu.",
       `<div class="g-row"><span class="g-radio on g-tocca">Da pagare</span><span class="g-radio">Domiciliata</span><span class="g-radio">Già pagata</span></div>`)}
-    ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Casa mia / Enel Energia - Luce / 2026_12_05 scad. 87,40€</b>. In alto, sotto <b>Casa</b>, puoi cambiare la casa.")}
+    ${passo(4, "In fondo vedi in quale cartella verrà salvata, per esempio <b>Casa mia / Enel Energia - Luce / 2026 / 2026_12_05 scad. 87,40€</b>. In alto, sotto <b>Casa</b>, puoi cambiare la casa.")}
     ${nota("Se la stessa bolletta è già nell'archivio, l'app te lo dice prima di salvarla due volte.")}`),
 
   cap("rate", "🏢", "Le rate del condominio", `
