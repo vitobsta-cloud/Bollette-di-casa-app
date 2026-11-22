@@ -16,6 +16,9 @@ import com.google.mlkit.vision.text.TextRecognition;
 import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
@@ -32,7 +35,8 @@ final class Ocr {
         return recognizer;
     }
 
-    static String read(Context ctx, byte[] data, String mime) throws Exception {
+    /** Le pagine da leggere: la foto, oppure le prime 4 pagine del PDF. */
+    private static List<Bitmap> pagine(Context ctx, byte[] data, String mime) throws Exception {
         List<Bitmap> pages = new ArrayList<>();
         if ("application/pdf".equals(mime)) {
             File tmp = new File(ctx.getCacheDir(), "ocr_" + System.nanoTime() + ".pdf");
@@ -62,14 +66,65 @@ final class Ocr {
             if (bmp == null) throw new IllegalArgumentException("Immagine non leggibile");
             pages.add(bmp);
         }
+        return pages;
+    }
 
+    /** Lettura "come scontrino": i pezzi alla stessa altezza diventano una riga (usata dalle versioni precedenti). */
+    static String read(Context ctx, byte[] data, String mime) throws Exception {
         StringBuilder sb = new StringBuilder();
-        for (Bitmap bmp : pages) {
+        for (Bitmap bmp : pagine(ctx, data, mime)) {
             Text t = Tasks.await(rec().process(InputImage.fromBitmap(bmp, 0)));
             sb.append(toLines(t)).append('\n');
             bmp.recycle();
         }
         return sb.toString().trim();
+    }
+
+    /**
+     * Lettura completa per le bollette: restituisce in JSON
+     *  - "righe":   il testo unito per righe (come read)
+     *  - "blocchi": il testo riquadro per riquadro, nell'ordine di lettura del telefono
+     *  - "pagine":  per ogni pagina larghezza, altezza e ogni riga letta con blocco e posizione [blocco, x, y, larghezza, altezza, testo]
+     * Così il modo di rimettere in ordine il testo si può migliorare nella pagina dell'app, senza reinstallare.
+     */
+    static String readDati(Context ctx, byte[] data, String mime) throws Exception {
+        StringBuilder righe = new StringBuilder(), blocchi = new StringBuilder();
+        JSONArray pagine = new JSONArray();
+        for (Bitmap bmp : pagine(ctx, data, mime)) {
+            Text t = Tasks.await(rec().process(InputImage.fromBitmap(bmp, 0)));
+            righe.append(toLines(t)).append('\n');
+            JSONObject pg = new JSONObject();
+            pg.put("w", bmp.getWidth());
+            pg.put("h", bmp.getHeight());
+            JSONArray linee = new JSONArray();
+            int nb = 0;
+            for (Text.TextBlock b : t.getTextBlocks()) {
+                StringBuilder tb = new StringBuilder();
+                for (Text.Line line : b.getLines()) {
+                    if (tb.length() > 0) tb.append('\n');
+                    tb.append(line.getText());
+                    Rect r = line.getBoundingBox();
+                    JSONArray l = new JSONArray();
+                    l.put(nb);
+                    l.put(r == null ? 0 : r.left);
+                    l.put(r == null ? 0 : r.top);
+                    l.put(r == null ? 0 : r.width());
+                    l.put(r == null ? 0 : r.height());
+                    l.put(line.getText());
+                    linee.put(l);
+                }
+                if (tb.length() > 0) blocchi.append(tb).append('\n');
+                nb++;
+            }
+            pg.put("linee", linee);
+            pagine.put(pg);
+            bmp.recycle();
+        }
+        JSONObject o = new JSONObject();
+        o.put("righe", righe.toString().trim());
+        o.put("blocchi", blocchi.toString().trim());
+        o.put("pagine", pagine);
+        return o.toString();
     }
 
     private static final class L {

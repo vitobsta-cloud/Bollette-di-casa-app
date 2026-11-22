@@ -319,6 +319,12 @@ public class Bridge {
         async(pool, id, () -> Ocr.read(act, Base64.decode(base64, Base64.DEFAULT), mime));
     }
 
+    /** OCR completo per le bollette: testo per righe, riquadro per riquadro e posizioni (JSON). */
+    @JavascriptInterface
+    public void ocrDati(String id, String base64, String mime) {
+        async(pool, id, () -> Ocr.readDati(act, Base64.decode(base64, Base64.DEFAULT), mime));
+    }
+
     // ---------------- Claude (facoltativo) ----------------
 
     @JavascriptInterface

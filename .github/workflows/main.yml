@@ -2,7 +2,7 @@ name: Compila APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, prova-app ]
   workflow_dispatch:
 
 permissions:
@@ -52,6 +52,7 @@ jobs:
           path: BolletteDiCasa.apk
 
       - name: Pubblica come ultima versione
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ultima-versione
