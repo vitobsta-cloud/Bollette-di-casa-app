@@ -305,6 +305,12 @@ pre.ocr{white-space:pre-wrap;font-size:12px;background:#f6f7f9;border-radius:8px
 .resoconto .rnum div{background:#fff;border-radius:10px;padding:7px 4px;font-size:12px;color:#555}
 .resoconto .rnum b{display:block;font-size:15.5px;color:#111}
 
+.viewer.vedi{display:flex;flex-direction:column;padding:0;background:#111}
+.viewer.vedi .vbar{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;color:#ddd;font-size:13.5px;background:#000}
+.viewer.vedi .vscroll{flex:1;overflow:auto;-webkit-overflow-scrolling:touch}
+.viewer.vedi img{display:block;width:100%;max-width:none;max-height:none;height:auto}
+.viewer.vedi img.zoom{width:260%}
+
 </style>
 </head>
 <body>
@@ -1273,8 +1279,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.29";
+const VERSIONE = "v1.30";
 const CRONOLOGIA = [
+  {v:"v1.30", d:"22/11/2026", n:["In Modifica si possono vedere le foto e i PDF già salvati (tocca il documento: «👁️ vedi»), per controllare i dati senza uscire.", "Le foto si aprono dentro l'app: tocca la foto per ingrandirla, scorri per muoverti, «Chiudi» per tornare."]},
   {v:"v1.29", d:"22/11/2026", n:["«Sembra già archiviata» compare solo se coincide anche l'importo o la scadenza: un numero di fattura uguale da solo non basta (poteva essere letto male).", "Grafici: c'è «Tutti gli anni», con la spesa totale, la media all'anno e una barra per ogni anno."]},
   {v:"v1.28", d:"22/11/2026", n:["Archivio: nella pagina di un fornitore il primo riquadro è il «📊 RESOCONTO», con un colore diverso, separato dall'elenco delle bollette.", "Archivio: si aggiorna da solo (niente più pulsante «Aggiorna»); al suo posto c'è la ricerca, e sotto le case si sceglie l'anno.", "Acquisisci: tre pulsanti per come leggere la bolletta: 📋 Inserisci testo acquisito, 📱 Acquisizione interna telefono, 🌐 Acquisizione con Google (grigio con le istruzioni se manca la chiave).", "Se la lettura non trova ente, importo e scadenza, ora lo dice chiaramente invece di «Dati compilati»."]},
   {v:"v1.27", d:"21/11/2026", n:["Messaggio di invito per i familiari più chiaro."]},
@@ -1618,11 +1625,32 @@ async function doppione(b){
 }
 function drawThumbs(){
   const t = $("#thumbs"); if(!t) return;
-  const old = documenti(draft).map(f => `<div class="thumb" title="Già nell'archivio">${isImg(f.name) ? "🖼️" : "📄"}<br>${esc(f.name.slice(0, 22))}</div>`);
+  const old = documenti(draft).map((f, i) => `<div class="thumb" data-o="${i}" title="Tocca per vedere">${isImg(f.name) ? "🖼️" : "📄"}<br>${esc(f.name.slice(0, 22))}<br><small style="color:var(--accent)">👁️ vedi</small></div>`);
   const neu = draft.pendingFiles.map((f, i) => `<div class="thumb" data-i="${i}">${f.mime.startsWith("image/") ? `<img src="${dataUrl(f)}">` : `📄<br>${esc(f.name.slice(0, 22))}`}<button data-del="${i}">✕</button></div>`);
   t.innerHTML = old.concat(neu).join("") || `<span class="muted">Nessun documento.</span>`;
   t.querySelectorAll("[data-del]").forEach(b => b.onclick = e => { e.stopPropagation(); draft.pendingFiles.splice(+b.dataset.del, 1); salvaBozza(); renderAcquisisci(); });
-  t.querySelectorAll(".thumb[data-i]").forEach(x => x.onclick = () => showLocal(draft.pendingFiles[+x.dataset.i]));
+  t.querySelectorAll(".thumb[data-i]").forEach(x => x.onclick = () => vediDocumento(draft.pendingFiles[+x.dataset.i]));
+  // documenti già nell'archivio: si vedono senza uscire dalla modifica
+  t.querySelectorAll(".thumb[data-o]").forEach(x => x.onclick = async () => {
+    const f = documenti(draft)[+x.dataset.o]; if(!f) return;
+    x.style.opacity = .5;
+    try{
+      if(isImg(f.name)) vediDocumento({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", draft.cartella + "/" + f.name)});
+      else await call("nasOpen", draft.cartella + "/" + f.name);
+    }catch(e){ toast(e.message, true); }
+    x.style.opacity = 1;
+  });
+}
+/* Foto a tutto schermo dentro l'app: tocca la foto per ingrandire, scorri per muoverti, «Chiudi» per tornare */
+function vediDocumento(f){
+  if(!f) return;
+  if(!f.mime.startsWith("image/")){ if(A) A.openFile(f.name, f.mime, f.data); return; }
+  const v = document.createElement("div"); v.className = "viewer vedi";
+  v.innerHTML = `<div class="vbar"><span>Tocca la foto per ingrandire</span><button class="btn small" id="vChiudi">✕ Chiudi</button></div><div class="vscroll"><img src="${dataUrl(f)}"></div>`;
+  document.body.appendChild(v);
+  const img = v.querySelector("img");
+  img.onclick = () => img.classList.toggle("zoom");
+  v.querySelector("#vChiudi").onclick = () => v.remove();
 }
 function altraPagina(){
   return new Promise(res => {
@@ -2009,9 +2037,9 @@ async function renderDettaglio(id){
     </div>`;
   $("#dThumbs").querySelectorAll(".thumb").forEach(t => t.onclick = async () => {
     const f = files[+t.dataset.i];
-    if(f.local){ showLocal(f); return; }
+    if(f.local){ vediDocumento(f); return; }
     t.style.opacity = .5;
-    try{ await call("nasOpen", a.cartella + "/" + f.name); }catch(e){ toast(e.message, true); }
+    try{ if(isImg(f.name)) vediDocumento({name:f.name, mime:mimeOf(f.name), data:await call("nasRead", a.cartella + "/" + f.name)}); else await call("nasOpen", a.cartella + "/" + f.name); }catch(e){ toast(e.message, true); }
     t.style.opacity = 1;
   });
   if($("#bPagata")) $("#bPagata").onclick = () => dialogoPagata(a);
