@@ -507,16 +507,33 @@ function statoInfo(b){
 const daPagare = b => b.stato !== "pag" && b.stato !== "dom" && b.stato !== "cred";
 const urgente = b => daPagare(b) && b.scadenza && daysLeft(b.scadenza) <= 7;
 const nomeEnte = b => [b.ente || "Ente sconosciuto", b.tipo ? normTipo(b.tipo) : ""].filter(Boolean).join(" - ");
+/* Ordine delle cartelle dell'archivio: cfa = Casa/Fornitore/Anno (predefinito), caf = Casa/Anno/Fornitore, fa = Fornitore/Anno (senza casa) */
+const ORDINI = {
+  cfa:{t:"Casa → Fornitore → Anno", d:"Apri il fornitore e trovi i suoi anni.", ic:"🏠"},
+  caf:{t:"Casa → Anno → Fornitore", d:"Apri l'anno e trovi tutti i fornitori di quell'anno (comodo per il 730).", ic:"📅"},
+  fa:{t:"Fornitore → Anno", d:"Senza la cartella della casa: per chi ha una casa sola.", ic:"📂"}};
+const ordineCartelle = () => ORDINI[settings().ordineCartelle] ? settings().ordineCartelle : "cfa";
+// percorso completo di una bolletta: l'ultima cartella (data, importo) resta sempre uguale
+function percorsoIn(ordine, casa, enteCartella, anno, ultima){
+  const c = casa ? safeName(casa) : "";
+  const p = ordine === "caf" ? [c, anno, enteCartella] : ordine === "fa" ? [enteCartella, anno] : [c, enteCartella, anno];
+  return p.filter(Boolean).concat(ultima).join("/");
+}
 function folderFor(b){
   const data = (b.scadenza || b.emessa || todayISO()).replace(/-/g, "_");
   const imp = Number(b.importo) > 0 ? " " + Number(b.importo).toFixed(2).replace(".", ",") + "€" : Number(b.importo) < 0 ? " rimborso " + Math.abs(Number(b.importo)).toFixed(2).replace(".", ",") + "€" : "";
-  // Casa / Ente - Tipo / Anno / data scad. importo  (una cartella per ogni anno)
-  return `${b.casa ? safeName(b.casa) + "/" : ""}${safeName(nomeEnte(b))}/${data.slice(0, 4)}/${data}${b.scadenza ? " scad." : ""}${imp}`;
+  // l'ordine delle cartelle si sceglie in Impostazioni → Cartelle dell'archivio
+  return percorsoIn(ordineCartelle(), b.casa, safeName(nomeEnte(b)), data.slice(0, 4), `${data}${b.scadenza ? " scad." : ""}${imp}`);
 }
 /* cartella del fornitore (tutto tranne l'ultima parte): "Casa mia/Enel Energia - Luce" */
-const cartellaEnte = b => { const p = (b.cartella || "").split("/").filter(Boolean); if(p.length > 2 && /^\d{4}$/.test(p[p.length - 2])) p.splice(p.length - 2, 1); return p.length > 1 ? p.slice(0, -1).join("/") : nomeEnte(b); };
-// la bolletta è già nella cartella del suo anno?
-const inCartellaAnno = b => { const p = (b.cartella || "").split("/").filter(Boolean); return p.length > 2 && /^\d{4}$/.test(p[p.length - 2]); };
+// gruppo "fornitore di una casa" (per l'Archivio), qualunque sia l'ordine delle cartelle
+const cartellaEnte = b => (b.casa ? b.casa + "/" : "") + nomeEnte(b);
+// anno della bolletta: quello scritto all'inizio del nome della sua cartella (2024_01_21 …), se no la data di riferimento
+const annoBolletta = b => { const u = (b.cartella || "").split("/").filter(Boolean).pop() || "", m = u.match(/^(\d{4})[_\-.]\d{2}[_\-.]\d{2}/); return m ? m[1] : (dataRif(b) || "").slice(0, 4); };
+// dove dovrebbe stare secondo l'ordine scelto (stessa ultima cartella)
+const percorsoGiusto = b => { const u = (b.cartella || "").split("/").filter(Boolean).pop() || "", an = annoBolletta(b); return /^\d{4}$/.test(an) ? percorsoIn(ordineCartelle(), b.casa, safeName(nomeEnte(b)), an, u) : b.cartella; };
+const daSistemare = b => !b.daCaricare && !!b.cartella && percorsoGiusto(b) !== b.cartella;
+const inCartellaAnno = b => !daSistemare(b);
 const descrPeriodo = b => b.periodoDa && b.periodoA ? `${fmtDate(b.periodoDa)} – ${fmtDate(b.periodoA)}` : b.periodoDa ? "dal " + fmtDate(b.periodoDa) : "";
 const MESI = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
 const MESI_LUNGHI = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -1000,13 +1017,12 @@ const CAMPI = ["casa","ente","tipo","importo","scadenza","emessa","numero","peri
 /* Una cartella dell'archivio → una bolletta. Se manca bolletta.json, i dati vengono dal nome delle cartelle */
 function entryFromFolder(f){
   // Casa/Ente - Tipo/data  (oppure, prima delle case: Ente - Tipo/data)
-  // Casa/Ente - Tipo/Anno/data, oppure (prima degli anni) Casa/Ente - Tipo/data
+  // qualunque ordine: Casa/Fornitore/Anno/data, Casa/Anno/Fornitore/data, Fornitore/Anno/data, oppure senza anno (archivi vecchi)
   const parts = f.path.split("/").filter(Boolean), last = parts[parts.length - 1] || "";
-  const conAnno = parts.length > 2 && /^\d{4}$/.test(parts[parts.length - 2]);
-  const sopra = conAnno ? parts.slice(0, -2) : parts.slice(0, -1);
-  const primo = sopra.length ? sopra[sopra.length - 1] : "", casa = sopra.length > 1 ? sopra[0] : "";
+  const sopra = parts.slice(0, -1).filter(x => !/^\d{4}$/.test(x));
+  const primo = sopra.length ? sopra[sopra.length - 1] : "", casaCartella = sopra.length > 1 ? sopra[0] : "";
   const b = newDraft(); delete b.pendingFiles;
-  Object.assign(b, {id:f.path, cartella:f.path, casa, files:(f.files || []).map(x => ({name:x.name, size:x.size})), hasInfo:false});
+  Object.assign(b, {id:f.path, cartella:f.path, casa:casaCartella, files:(f.files || []).map(x => ({name:x.name, size:x.size})), hasInfo:false});
   const sep = primo.lastIndexOf(" - ");
   if(sep > 0 && tipi().some(t => t.k === normTipo(primo.slice(sep + 3)))){ b.ente = primo.slice(0, sep); b.tipo = normTipo(primo.slice(sep + 3)); } else b.ente = primo;
   const dm = last.match(/(\d{4})[_\-.](\d{2})[_\-.](\d{2})/);
@@ -1014,7 +1030,8 @@ function entryFromFolder(f){
   const im = last.match(/(\d+[.,]\d{2})\s*€/); if(im) b.importo = num(im[1]);
   if(f.info){ try{ const i = JSON.parse(f.info); for(const k of CAMPI) if(i[k] !== undefined) b[k] = i[k]; b.hasInfo = true; }catch(err){} }
   if(!b.hasInfo) b.stato = "da";
-  b.casa = casa;   // la casa è quella della cartella in cui si trova
+  // la casa è quella della cartella in cui si trova; senza cartella della casa (ordine Fornitore → Anno) vale quella scritta nei dati
+  b.casa = casaCartella || (b.hasInfo ? b.casa || "" : "");
   b.tipo = b.tipo ? normTipo(b.tipo) : "";
   return b;
 }
@@ -1252,7 +1269,7 @@ async function leggiCase(){
   if(!archivioPronto()) return;
   try{
     const d = JSON.parse(b64dec(await call("nasRead", CASE_FILE)));
-    saveSettings({case:Array.isArray(d.case) ? d.case : [], tipiExtra:Array.isArray(d.tipi) ? d.tipi : []});
+    saveSettings(Object.assign({case:Array.isArray(d.case) ? d.case : [], tipiExtra:Array.isArray(d.tipi) ? d.tipi : []}, ORDINI[d.ordineCartelle] ? {ordineCartelle:d.ordineCartelle, ordineScelto:true} : {}));
   }catch(e){
     // non c'è ancora: se il telefono ha già delle case (create fuori casa), le scrive nell'archivio
     if((settings().case || []).length && /non trovat|not found|no such|NAME_NOT_FOUND|does not exist|0xc0000034/i.test(e.message || "")) scriviCase().catch(() => {});
@@ -1260,20 +1277,17 @@ async function leggiCase(){
 }
 async function scriviCase(caseL, tipiL){
   const s = settings(), c = caseL || s.case || [], t = tipiL || s.tipiExtra || [];
-  await call("nasWriteText", "", CASE_FILE, JSON.stringify({app:"BolletteDiCasa", tipo:"case", aggiornato:new Date().toISOString(), case:c, tipi:t}, null, 2));
+  await call("nasWriteText", "", CASE_FILE, JSON.stringify({app:"BolletteDiCasa", tipo:"case", aggiornato:new Date().toISOString(), case:c, tipi:t, ordineCartelle:ordineCartelle()}, null, 2));
   saveSettings({case:c, tipiExtra:t});
 }
 /* Sposta una bolletta in un'altra cartella (casa nuova): copia i file, scrive bolletta.json, cancella la vecchia */
 /* Riordino: mette ogni bolletta nella cartella del suo anno, senza cambiare il nome della sua cartella */
 async function riordinaPerAnni(avanza){
-  const tutte = (await allBollette()).filter(b => !b.daCaricare && b.cartella && !inCartellaAnno(b));
+  const tutte = (await allBollette()).filter(daSistemare);
   let fatte = 0, errori = 0;
   for(const b of tutte){
-    const p = b.cartella.split("/").filter(Boolean), ultimo = p[p.length - 1];
-    const m = ultimo.match(/^(\d{4})[_\-.]\d{2}[_\-.]\d{2}/), anno = m ? m[1] : (dataRif(b) || "").slice(0, 4);
-    if(!/^\d{4}$/.test(anno)){ errori++; continue; }
-    const dest = [...p.slice(0, -1), anno, ultimo].join("/");
-    avanza && avanza(`${fatte + errori + 1} di ${tutte.length}: ${b.ente || ""} ${anno}`);
+    const dest = percorsoGiusto(b);
+    avanza && avanza(`${fatte + errori + 1} di ${tutte.length}: ${b.ente || ""} ${annoBolletta(b)}`);
     try{ await spostaIn(b, dest); fatte++; }catch(e){ errori++; }
   }
   return {fatte, errori, totale:tutte.length};
@@ -1322,7 +1336,7 @@ async function spostaBolletta(b, campi, avanza){
 let current = "";
 const TITOLI = {home:"Bollette di casa", acquisisci:"Acquisisci", archivio:"Archivio", ente:"Archivio", scadenze:"Scadenze", impostazioni:"Impostazioni", dettaglio:"Bolletta", grafici:"Grafici",
   impDest:"Dove salvare", impAvvisi:"Avvisi di scadenza", impLett:"Lettura bollette", impBackup:"Backup e catalogo", impInfo:"Informazioni", impStampa:"Stampa",
-  impUtenti:"Utenti di casa", impUtente:"Utente", impCase:"Le mie case", impCasa:"Casa", impTipi:"Tipi di bolletta", invito:"Entra con un invito", guida:"Guida all'uso"};
+  impUtenti:"Utenti di casa", impUtente:"Utente", impCase:"Le mie case", impCasa:"Casa", impTipi:"Tipi di bolletta", impCartelle:"Cartelle dell'archivio", invito:"Entra con un invito", guida:"Guida all'uso"};
 let currentArg, navStack = [];
 function setView(v, arg, isBack){
   if(!isBack){
@@ -1338,7 +1352,7 @@ function setView(v, arg, isBack){
   window.scrollTo(0, 0);
   return ({home:renderHome, acquisisci:renderAcquisisci, archivio:renderArchivio, ente:renderEnte, scadenze:renderScadenze, impostazioni:renderImpostazioni, dettaglio:renderDettaglio, grafici:renderGrafici,
     impDest:renderImpDest, impAvvisi:renderImpAvvisi, impLett:renderImpLett, impBackup:renderImpBackup, impInfo:renderImpInfo, impStampa:renderImpStampa,
-    impUtenti:renderImpUtenti, impUtente:renderImpUtente, impCase:renderImpCase, impCasa:renderImpCasa, impTipi:renderImpTipi, invito:renderInvito, guida:renderGuida})[v](arg);
+    impUtenti:renderImpUtenti, impUtente:renderImpUtente, impCase:renderImpCase, impCasa:renderImpCasa, impTipi:renderImpTipi, impCartelle:renderImpCartelle, invito:renderInvito, guida:renderGuida})[v](arg);
 }
 $("#hBack").onclick = () => window.onAndroidBack();
 $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric", month:"long", year:"numeric"});
@@ -1346,8 +1360,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.34";
+const VERSIONE = "v1.35";
 const CRONOLOGIA = [
+  {v:"v1.35", d:"23/11/2026", n:["Impostazioni → 🗂️ Cartelle dell'archivio: dove sta l'archivio e com'è ordinato, con un esempio vero. Si sceglie l'ordine: Casa → Fornitore → Anno (consigliato), Casa → Anno → Fornitore, oppure Fornitore → Anno (una sola casa). Cambiando, le bollette già salvate vengono spostate nel nuovo ordine.", "Chi parte da zero sceglie l'ordine al salvataggio della prima bolletta. La scelta vale per tutta la famiglia."]},
   {v:"v1.34", d:"22/11/2026", n:["Archivio sul NAS diviso per anni: Casa / Fornitore / Anno / bolletta (es. WindTre - Telefono / 2024 / 2024_01_21 scad. 29,90€).", "Le bollette nuove vanno subito nella cartella del loro anno; per quelle già salvate, in Archivio c'è «🗂️ Metti in ordine per anno»."]},
   {v:"v1.33", d:"22/11/2026", n:["Con più foto della stessa bolletta, la lettura con Google ora le guarda tutte (prima solo la prima).", "Quando rileggi, i dati letti in automatico vengono sostituiti tutti (prima restavano quelli vecchi sbagliati).", "Pronta per la nuova app (2.0): il telefono legge riquadro per riquadro, come la galleria Xiaomi, e tiene la lettura più completa.", "Bollette a credito (rimborso): in Pagamento c'è «💚 A credito (rimborso)»; l'importo si scrive senza il meno, non serve la scadenza e non compare tra quelle da pagare. Nei grafici abbassa la spesa.", "L'importo si scrive con la virgola (es. 78,56).", "Incollando il testo senza foto, il modulo dei dati ora compare."]},
   {v:"v1.32", d:"22/11/2026", n:["Corretto: una bolletta normale (es. A2A acqua con «piano rateale») veniva presa per un prospetto delle rate del condominio.", "Nella schermata delle rate c'è «🧾 Non è un prospetto di rate: è una bolletta normale».", "Lettura: POD dell'acqua con lettera (IT006A…), «al20 Giugno» e «Indirizzo difornitura» scritti attaccati."]},
@@ -1911,6 +1926,10 @@ async function doSalva(){
   if(!draft.scadenza && draft.stato !== "pag" && draft.stato !== "cred" && !(await conferma("Manca la scadenza: senza scadenza non posso avvisarti. Salvare lo stesso?", "Salva"))) return;
   if(!draft._edit && !draft._mano && !draft.pendingFiles.length && !(await conferma("Nessun PDF o foto allegato. Salvare lo stesso?\n\nPotrai aggiungerli dopo: apri la bolletta → 📎 Aggiungi la foto o il PDF.", "Salva"))) return;
   if(!draft._edit){ const d = await doppione(draft); if(d && !(await conferma(`Questa bolletta sembra già archiviata:\n${nomeEnte(d)} · ${euro(d.importo)} · scadenza ${fmtDate(d.scadenza)}.\n\nSalvarla lo stesso?`, "Salva"))) return; }
+  if(!draft._edit && !settings().ordineScelto && !(await allBollette()).length){
+    const o = await scegliOrdine("Prima bolletta: come vuoi ordinare le cartelle?"); if(!o) return;
+    await salvaOrdine(o);
+  }
   const a = draft, me = io(), ora = new Date().toISOString();
   if(a._edit) delete a.datiAuto;
   if(me){ if(!a._edit){ a.aggiuntoDa = me.nome; a.aggiuntoDaId = me.id; a.aggiuntoIl = ora; } else { a.modificatoDa = me.nome; a.modificatoIl = ora; } }
@@ -2002,10 +2021,10 @@ async function renderArchivio(filtro, giaAggiornato){
   const tutti = annoArch ? tuttiCasa.filter(b => dataRif(b).startsWith(annoArch)) : tuttiCasa;
   const anno = annoArch || String(new Date().getFullYear());
   if(filtro && filtro.nuovi){ $("#hTitle").textContent = "Nuove bollette"; }
-  const daRiordinare = (await allBollette()).filter(b => !b.daCaricare && b.cartella && !inCartellaAnno(b)).length;
+  const daRiordinare = (await allBollette()).filter(daSistemare).length;
   $("#view").innerHTML = `
     ${nasBanner()}${await pendingBanner()}
-    ${daRiordinare && archivioPronto() ? `<div class="card" style="background:#fff7ed;border:1.5px solid #fdba74"><b>🗂️ Cartelle per anno</b><p style="margin:6px 0 8px">Ci sono <b>${daRiordinare}</b> bollette non ancora nella cartella del loro anno (es. <i>WindTre - Telefono / 2024 / …</i>). Le metto in ordine io: i file non cambiano, cambia solo la cartella.</p><div class="btns"><button class="btn primary" id="bRiordina">🗂️ Metti in ordine per anno</button></div></div>` : ""}
+    ${daRiordinare && archivioPronto() ? `<div class="card" style="background:#fff7ed;border:1.5px solid #fdba74"><b>🗂️ Cartelle da mettere in ordine</b><p style="margin:6px 0 8px">Ci sono <b>${daRiordinare}</b> bollette non ancora al loro posto (<i>${esc(ORDINI[ordineCartelle()].t)}</i>). Le metto in ordine io: i file non cambiano, cambia solo la cartella.</p><div class="btns"><button class="btn primary" id="bRiordina">🗂️ Metti in ordine</button></div></div>` : ""}
     ${chipsCase()}
     ${anni.length > 1 || annoArch ? `<div class="chips" id="chipsAnno"><button class="chip${!annoArch ? " on" : ""}" data-ya="">Tutti gli anni</button>${anni.map(y => `<button class="chip${annoArch === y ? " on" : ""}" data-ya="${y}">${y}</button>`).join("")}</div>` : ""}
     <div class="card" style="padding:10px">
@@ -2015,16 +2034,8 @@ async function renderArchivio(filtro, giaAggiornato){
     <div id="list"></div>`;
   bindPending();
   if($("#bRiordina")) $("#bRiordina").onclick = async () => {
-    if(!(await conferma(`Mettere ${daRiordinare} bollette nelle cartelle dei loro anni?\n\nSul NAS ogni bolletta viene copiata nella cartella dell'anno e poi tolta da quella vecchia. Ci vuole qualche minuto: tieni l'app aperta e il telefono sul Wi-Fi di casa.`, "Metti in ordine"))) return;
-    const m = document.createElement("div"); m.className = "modal";
-    m.innerHTML = `<div class="box"><h3 style="margin:0 0 8px">🗂️ Metto in ordine per anno…</h3><div class="status"><span class="spinner"></span><span id="riordOut">Inizio…</span></div><p class="muted" style="margin:8px 0 0">Non chiudere l'app.</p></div>`;
-    document.body.appendChild(m);
-    let r;
-    try{ r = await riordinaPerAnni(t => { const o = document.getElementById("riordOut"); if(o) o.textContent = t; }); }
-    catch(e){ r = {fatte:0, errori:1, totale:daRiordinare}; }
-    m.remove(); syncReminders();
-    avviso(`🗂️ Archivio in ordine per anno\n\n✅ ${r.fatte} ${r.fatte === 1 ? "bolletta spostata" : "bollette spostate"} nella cartella del loro anno.` + (r.errori ? `\n⚠️ ${r.errori} non spostate (riprova più tardi: restano dove erano, non si perde niente).` : ""));
-    await refreshFromNas(true); renderArchivio(filtro, true);
+    if(!(await conferma(`Mettere in ordine ${daRiordinare} bollette (${ORDINI[ordineCartelle()].t})?\n\nSul NAS ogni bolletta viene copiata nella cartella dell'anno e poi tolta da quella vecchia. Ci vuole qualche minuto: tieni l'app aperta e il telefono sul Wi-Fi di casa.`, "Metti in ordine"))) return;
+    await eseguiRiordino(); renderArchivio(filtro, true);
   };
   document.querySelectorAll("[data-ya]").forEach(b => b.onclick = () => { annoArch = b.dataset.ya; renderArchivio(filtro, true); });
   // si aggiorna da solo dall'archivio (al massimo una volta al minuto), senza pulsante
@@ -2475,6 +2486,34 @@ function bindCardRate(){
   $("#rNomi").onclick = () => { draft.rate.stato = "nomi"; renderAcquisisci(); };
   $("#rSalva").onclick = salvaRate;
 }
+async function eseguiRiordino(){
+  const m = document.createElement("div"); m.className = "modal";
+  m.innerHTML = `<div class="box"><h3 style="margin:0 0 8px">🗂️ Metto in ordine le cartelle…</h3><div class="status"><span class="spinner"></span><span id="riordOut">Inizio…</span></div><p class="muted" style="margin:8px 0 0">Non chiudere l'app e resta sul Wi-Fi di casa.</p></div>`;
+  document.body.appendChild(m);
+  let r;
+  try{ r = await riordinaPerAnni(t => { const o = document.getElementById("riordOut"); if(o) o.textContent = t; }); }
+  catch(e){ r = {fatte:0, errori:1, totale:0}; }
+  m.remove(); syncReminders();
+  avviso(`🗂️ Cartelle in ordine\n${ORDINI[ordineCartelle()].t}\n\n✅ ${r.fatte} ${r.fatte === 1 ? "bolletta spostata" : "bollette spostate"}.` + (r.errori ? `\n⚠️ ${r.errori} non spostate (riprova più tardi: restano dove erano, non si perde niente).` : ""));
+  await refreshFromNas(true);
+  return r;
+}
+/* Chi parte da zero: prima di salvare la prima bolletta sceglie come ordinare le cartelle */
+function scegliOrdine(titolo){
+  return new Promise(res => {
+    const m = document.createElement("div"); m.className = "modal";
+    m.innerHTML = `<div class="box"><h3 style="margin:0 0 6px">🗂️ ${esc(titolo || "Come vuoi ordinare le cartelle?")}</h3>
+      <p class="muted" style="margin:0 0 8px">Si può cambiare quando vuoi da Impostazioni → Cartelle dell'archivio.</p>
+      ${Object.entries(ORDINI).map(([k, o]) => `<button class="bigpick" data-o="${k}"${k === "fa" && piuCase() ? " disabled style=\"opacity:.45\"" : ""}><span class="ic" style="background:#e6f4f1">${o.ic}</span><span><span class="t1">${esc(o.t)}${k === "cfa" ? ` <span class="consig">consigliato</span>` : ""}</span><br><span class="t2">${esc(o.d)}${k === "fa" && piuCase() ? " (non adatto: hai più case)" : ""}</span></span></button>`).join("")}
+      <div class="btns"><button class="btn" data-x="1">Annulla</button></div></div>`;
+    document.body.appendChild(m);
+    m.onclick = e => { const b = e.target.closest("[data-o]"); if(b && !b.disabled){ m.remove(); res(b.dataset.o); } else if(e.target === m || (e.target.dataset && e.target.dataset.x)){ m.remove(); res(null); } };
+  });
+}
+async function salvaOrdine(o){
+  saveSettings({ordineCartelle:o, ordineScelto:true});
+  if(archivioPronto()) try{ await scriviCase(); }catch(e){}
+}
 function avviso(msg){
   const m = document.createElement("div"); m.className = "modal";
   m.innerHTML = `<div class="box"><div style="white-space:pre-line;font-size:16px;line-height:1.5;margin:4px 0 8px">${esc(msg)}</div><div class="btns"><button class="btn primary" data-r="1">OK</button></div></div>`;
@@ -2539,6 +2578,7 @@ function renderImpostazioni(){
     ${rigaMenu("impCase", "🏠", "#e0f2fe", "Le mie case", caseCasa().length ? esc(caseCasa().map(c => c.nome).join(", ")) : "Nessuna casa: aggiungi la prima")}
     ${rigaMenu("impTipi", "🏷️", "#fef3c7", "Tipi di bolletta", esc(tipi().filter(t => t.k !== "Altro").map(t => t.k).join(", ")))}
     ${gest ? rigaMenu("impDest", "📁", "#e6eef8", "Dove salvare le bollette", esc(descrDestinazione())) : ""}
+    ${rigaMenu("impCartelle", "🗂️", "#fff7ed", "Cartelle dell'archivio", esc(ORDINI[ordineCartelle()].t))}
     ${rigaMenu("impAvvisi", "🔔", "#f8e6dc", "Avvisi di scadenza", `${s.giorniPrima} giorni prima${s.giornoStesso ? " e il giorno stesso" : ""} · domiciliate: ${s.domiciliate === "no" ? "nessun avviso" : "solo avviso"}`)}
     ${rigaMenu("impUtenti", "👥", "#edf3e4", "Utenti di casa", me ? esc(utentiCasa().map(u => u.nome).join(", ") || me.nome) + " · sei " + esc(me.nome) : archivioScelto() === "nas" ? "Usa l'archivio in più persone" : "Solo con l'archivio sul NAS")}
     ${rigaMenu("impLett", "🔎", "#ccfbf1", "Lettura bollette", s.geminiKey ? "Sul telefono + online Google, gratis" : "Sul telefono, gratis")}
@@ -2662,6 +2702,33 @@ function renderImpDest(){
     }catch(e){ if(mode === "nas") setNasState("off"); }
     b.disabled = false;
   };
+}
+
+/* ---------- Cartelle dell'archivio: dove sta e com'è ordinato ---------- */
+async function renderImpCartelle(){
+  const tutte = await allBollette(), es = tutte.filter(b => b.cartella && !b.daCaricare).sort((x, y) => (dataRif(y) || "").localeCompare(dataRif(x) || ""))[0];
+  const esempio = es ? percorsoGiusto(es) : percorsoIn(ordineCartelle(), caseCasa()[0] ? caseCasa()[0].nome : "", "Enel Energia - Luce", String(new Date().getFullYear()), "2026_12_05 scad. 87,40€");
+  const att = ordineCartelle(), nDa = tutte.filter(daSistemare).length, gest = puo("gestire");
+  const albero = p => p.split("/").map((x, i) => `<div style="padding-left:${i * 14}px">${i ? "└ " : ""}${i === p.split("/").length - 1 ? "📄" : "📁"} ${esc(x)}</div>`).join("");
+  $("#view").innerHTML = `
+    <div class="card"><h2>📍 Dove sta l'archivio</h2><p style="margin:0">${esc(descrDestinazione())}</p>${gest ? `<div class="btns"><button class="btn small" onclick="setView('impDest')">Cambia</button></div>` : ""}</div>
+    <div class="card resoconto"><div class="rtit">🗂️ COM'È ORDINATO ADESSO</div><b>${esc(ORDINI[att].t)}</b>
+      <div style="margin-top:8px;font-size:13.5px;line-height:1.6;background:#fff;border-radius:10px;padding:8px 10px">${albero(esempio)}</div>
+      <p class="muted" style="margin:8px 0 0">${es ? "Esempio con una tua bolletta." : "Esempio: ancora nessuna bolletta salvata."}${nDa ? ` ⚠️ ${nDa} ${nDa === 1 ? "bolletta non è" : "bollette non sono"} ancora al loro posto.` : ""}</p></div>
+    <div class="card"><h2>Scegli come ordinare le cartelle</h2>
+      ${Object.entries(ORDINI).map(([k, o]) => `<button class="bigpick${k === att ? " on" : ""}" data-ord="${k}"${(k === "fa" && piuCase()) || !gest ? " disabled style=\"opacity:.45\"" : ""}><span class="ic" style="background:${k === att ? "#0F766E" : "#e6f4f1"}">${o.ic}</span><span><span class="t1">${esc(o.t)}${k === att ? " ✓" : ""}${k === "cfa" ? ` <span class="consig">consigliato</span>` : ""}</span><br><span class="t2">${esc(o.d)}${k === "fa" && piuCase() ? " Non adatto: hai più case." : ""}</span></span></button>`).join("")}
+      ${!gest ? `<p class="muted">Lo può cambiare solo chi gestisce l'archivio.</p>` : ""}
+      ${nDa && gest ? `<div class="btns"><button class="btn primary" id="bOrdOra">🗂️ Metti in ordine adesso (${nDa})</button></div>` : ""}
+      <div id="ordOut"></div></div>`;
+  document.querySelectorAll("[data-ord]").forEach(b => b.onclick = async () => {
+    const o = b.dataset.ord; if(o === ordineCartelle() || b.disabled) return;
+    const n = tutte.filter(x => x.cartella && !x.daCaricare).length;
+    if(n && !(await conferma(`Ordinare le cartelle così?\n${ORDINI[o].t}\n\nLe ${n} bollette già salvate vengono spostate nel nuovo ordine: prima copiate, poi tolte dal posto vecchio. Ci vogliono alcuni minuti: tieni l'app aperta e il telefono sul Wi-Fi di casa.`, "Sì, cambia"))) return;
+    await salvaOrdine(o);
+    if(n && archivioPronto()) await eseguiRiordino(); else toast("Fatto: " + ORDINI[o].t);
+    renderImpCartelle();
+  });
+  if($("#bOrdOra")) $("#bOrdOra").onclick = async () => { await eseguiRiordino(); renderImpCartelle(); };
 }
 
 /* ---------- Le mie case ---------- */
@@ -2900,6 +2967,14 @@ function renderGuida(){
     ${passo(4, "In <b>Archivio</b>, in <b>Scadenze</b> e nei <b>Grafici</b> trovi in alto le case: tocca una casa per vedere solo le sue bollette, oppure <b>Tutte</b>.")}
     ${nota("Il nome di una casa che ha già delle bollette non si cambia (è il nome della sua cartella). L'indirizzo e l'icona sì.")}
     ${nota("Servono altri tipi di bolletta (assicurazione, canone RAI, caldaia…)? <b>Impostazioni → Tipi di bolletta → Aggiungi</b>.")}`),
+
+  cap("cartelle", "🗂️", "Come sono ordinate le cartelle dell'archivio", `
+    <p>Sul NAS ogni bolletta ha la sua cartella, con dentro il PDF (o le foto) e i dati. L'ordine delle cartelle lo scegli tu, e vale per tutta la famiglia.</p>
+    ${passo(1, "Vai in <b>Impostazioni → 🗂️ Cartelle dell'archivio</b>. In alto vedi <b>dove sta l'archivio</b> e <b>com'è ordinato adesso</b>, con l'esempio di una tua bolletta.")}
+    ${passo(2, "Sotto ci sono i tre ordini possibili. Tocca quello che preferisci:<br>🏠 <b>Casa → Fornitore → Anno</b> (consigliato): <i>Casa mia / Enel Energia - Luce / 2026 / bolletta</i><br>📅 <b>Casa → Anno → Fornitore</b>: <i>Casa mia / 2026 / Enel Energia - Luce / bolletta</i>, comodo per il 730<br>📂 <b>Fornitore → Anno</b>: <i>Enel Energia - Luce / 2026 / bolletta</i>, solo per chi ha una casa sola")}
+    ${passo(3, "Se hai già delle bollette, l'app chiede conferma e le <b>sposta tutte</b> nel nuovo ordine: prima le copia, poi toglie quelle vecchie. Tieni l'app aperta e il telefono sul Wi-Fi di casa finché non compare «Cartelle in ordine».")}
+    ${nota("Chi comincia da zero sceglie l'ordine quando salva la <b>prima bolletta</b>. Si può cambiare quando vuoi.")}
+    ${nota("Se in Archivio compare il riquadro <b>«Cartelle da mettere in ordine»</b>, tocca <b>🗂️ Metti in ordine</b>: i file non cambiano, cambia solo la cartella.")}`),
 
   cap("acquisisci", "📥", "Archiviare una bolletta con Acquisisci", `
     ${passo(1, "Nella Home tocca <b>Acquisisci</b>, poi tocca la <b>casa</b> della bolletta.", schermo("Bollette di casa", tile("📥", "#ccfbf1", "Acquisisci", "PDF dall'email o foto della bolletta", true), true))}
