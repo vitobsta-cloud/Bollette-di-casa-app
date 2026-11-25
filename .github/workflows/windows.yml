@@ -1,0 +1,63 @@
+name: Compila programma per Windows
+
+on:
+  push:
+    branches: [ main, pc ]
+    paths:
+      - "windows/**"
+      - "app/src/main/assets/www/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compila
+        run: dotnet build windows/BolletteDiCasa.csproj -c Release -p:Ramo=${{ github.ref_name }}
+
+      - name: Prepara lo zip
+        shell: pwsh
+        run: |
+          $out = "windows/bin/Release/net48"
+          New-Item -ItemType Directory -Force -Path "pacchetto/Bollette di casa" | Out-Null
+          Copy-Item -Recurse -Force "$out/*" "pacchetto/Bollette di casa/"
+          Get-ChildItem -Recurse "pacchetto" -Include *.pdb,*.xml | Remove-Item -Force
+          Compress-Archive -Path "pacchetto/Bollette di casa" -DestinationPath "BolletteDiCasa-PC.zip" -Force
+          Get-ChildItem "pacchetto/Bollette di casa" | Select-Object Name, Length | Format-Table | Out-String | Write-Host
+
+      - name: Allega ai risultati della build
+        uses: actions/upload-artifact@v4
+        with:
+          name: BolletteDiCasa-PC
+          path: BolletteDiCasa-PC.zip
+
+      - name: Pubblica (prova)
+        if: github.ref == 'refs/heads/pc'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pc-prova
+          name: Bollette di casa per PC (prova)
+          prerelease: true
+          make_latest: false
+          body: |
+            Versione di prova del programma per Windows.
+            Scarica BolletteDiCasa-PC.zip, estrai la cartella e apri BolletteDiCasa.exe.
+          files: BolletteDiCasa-PC.zip
+
+      - name: Pubblica
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pc-ultima-versione
+          name: Bollette di casa per PC
+          make_latest: false
+          body: |
+            Bollette di casa per Windows.
+            Scarica BolletteDiCasa-PC.zip, estrai la cartella e apri BolletteDiCasa.exe.
+          files: BolletteDiCasa-PC.zip

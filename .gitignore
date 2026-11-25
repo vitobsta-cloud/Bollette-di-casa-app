@@ -4,3 +4,5 @@ app/firma.keystore
 build/
 .gradle/
 local.properties
+windows/bin/
+windows/obj/

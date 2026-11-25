@@ -311,6 +311,48 @@ pre.ocr{white-space:pre-wrap;font-size:12px;background:#f6f7f9;border-radius:8px
 .viewer.vedi img{display:block;width:100%;max-width:none;max-height:none;height:auto}
 .viewer.vedi img.zoom{width:260%}
 
+
+/* =========================================================
+   VERSIONE PER PC (programma per Windows): stile TR/Commander
+   ========================================================= */
+#pcNav,#pcKeys{display:none}
+body.pc{--bg:#eef1f5;font-size:16px;padding-left:250px;padding-bottom:66px}
+body.pc #pcNav{display:flex;position:fixed;left:0;top:0;bottom:0;width:250px;z-index:20;background:#f6f8fa;border-right:1px solid var(--line);flex-direction:column;padding:22px 16px 12px;gap:3px;overflow:hidden}
+#pcNav .brand{padding:4px 12px 16px;font:700 19px/1.2 Consolas,"Cascadia Mono",monospace;letter-spacing:.3px;color:var(--text)}
+#pcNav .brand span{color:var(--accent)}
+#pcNav .mi{display:flex;align-items:center;gap:14px;padding:11px 14px;border-radius:10px;border:0;border-left:4px solid transparent;background:transparent;color:var(--text);font:inherit;font-size:17px;text-align:left;width:100%;cursor:pointer}
+#pcNav .mi:hover{background:#eceff3}
+#pcNav .mi.on{background:#d5f5f0;border-left-color:var(--accent);color:var(--accent);font-weight:600}
+#pcNav .mi .ic{font-size:19px;width:24px;text-align:center;flex:none}
+#pcNav .mi .pt{margin-left:auto;width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+#pcNav .mi .cnt{margin-left:auto;background:var(--warn);color:#fff;border-radius:99px;font-size:12px;font-weight:700;padding:1px 8px}
+#pcNav .omino{margin-top:auto;text-align:center;padding:12px 0 4px}
+#pcNav .omino .cap{font-size:14px;color:var(--muted);font-weight:600;margin-top:2px}
+#pcNav .piede{padding:10px 10px 0;font-size:14px;color:var(--muted);display:flex;flex-direction:column;gap:10px}
+#pcNav .piede a{color:var(--muted);text-decoration:none;cursor:pointer}
+#pcNav .piede a:hover{color:var(--accent)}
+#pcNav .piede .pcver{text-align:center;font-size:12.5px}
+body.pc .ver{display:none}
+html.pc,body.pc{background:var(--bg);min-height:100vh}
+@media (max-height:820px){ #pcNav .mi{padding:8px 14px;font-size:16px} #pcNav .omino svg{width:105px;height:105px} }
+@media (max-height:680px){ #pcNav .omino svg{width:76px;height:76px} #pcNav .omino .cap{display:none} }
+body.pc header{background:var(--bg);color:var(--text);border-bottom:1px solid var(--line);padding:16px 28px;min-height:66px}
+body.pc header h1,body.pc header.sub h1{font-size:23px;font-weight:600}
+body.pc header .back{background:#fff;color:var(--text);border:1px solid var(--line);cursor:pointer}
+body.pc header .back:hover{border-color:var(--accent)}
+body.pc header .hdate,body.pc header.sub .hdate{color:var(--muted);font-size:14.5px;max-width:none;white-space:nowrap}
+body.pc .statusbar{padding:8px 28px;background:var(--bg)}
+body.pc main{max-width:1180px;padding:22px 28px 40px}
+body.pc .tile,body.pc .scelta,body.pc .entry,body.pc .hb,body.pc .chip,body.pc button{cursor:pointer}
+body.pc .tile:hover,body.pc .entry:hover,body.pc .scelta:hover{border-color:var(--accent)}
+body.pc.v-home #view{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;align-content:start}
+body.pc.v-home #view>*:not(.tile){grid-column:1 / -1}
+body.pc #pcKeys{display:flex;position:fixed;left:250px;right:0;bottom:0;z-index:19;gap:8px;padding:10px 28px;background:var(--bg);border-top:1px solid var(--line)}
+#pcKeys button{flex:1;min-width:0;border:1px solid #dcdfe4;background:#fff;color:var(--text);border-radius:8px;padding:9px 6px;font:inherit;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#pcKeys button b{color:var(--accent);margin-right:5px}
+#pcKeys button:hover{border-color:var(--accent);background:#f3faf9}
+body.pc #stampaBadge{left:auto;right:28px;bottom:80px;max-width:520px}
+body.pc #toast{bottom:84px}
 </style>
 </head>
 <body>
@@ -3672,6 +3714,74 @@ bozzaOp("readonly", st => st.get("corrente")).then(b => {
 syncReminders();
 if(archivioPronto()) collegaArchivio(false);
 
+/* =========================================================
+   VERSIONE PER PC (programma per Windows)
+   Stessa app del telefono: cambia solo l'aspetto (menù a sinistra, tasti F in basso).
+   Sul telefono questa parte non fa niente.
+   ========================================================= */
+const SUL_PC = !!window.SUL_PC || !!(A && A.isPC && (() => { try{ return A.isPC(); }catch(e){ return false; } })());
+const OMINO_SVG = `<svg width="140" height="140" viewBox="0 0 150 150" aria-label="omino con la bolletta">
+  <ellipse cx="68" cy="140" rx="40" ry="5" fill="#000" opacity=".08"/>
+  <rect x="50" y="104" width="13" height="30" rx="5" fill="#1e40af"/><rect x="73" y="104" width="13" height="30" rx="5" fill="#1e40af"/>
+  <ellipse cx="55" cy="135" rx="11" ry="5" fill="#374151"/><ellipse cx="81" cy="135" rx="11" ry="5" fill="#374151"/>
+  <rect x="44" y="66" width="48" height="46" rx="12" fill="#2563eb"/>
+  <rect x="52" y="74" width="32" height="22" rx="4" fill="#3b82f6"/><circle cx="56" cy="78" r="2" fill="#fbbf24"/><circle cx="80" cy="78" r="2" fill="#fbbf24"/>
+  <rect x="32" y="72" width="13" height="30" rx="6" fill="#2563eb" transform="rotate(12 38 72)"/><circle cx="34" cy="102" r="6" fill="#f5c29a"/>
+  <circle cx="68" cy="48" r="20" fill="#f5c29a"/>
+  <path d="M46 44 a22 20 0 0 1 44 0 z" fill="#facc15"/><rect x="42" y="42" width="52" height="6" rx="3" fill="#eab308"/><rect x="64" y="25" width="8" height="10" rx="3" fill="#eab308"/>
+  <circle cx="61" cy="53" r="2.3" fill="#1f2937"/><circle cx="75" cy="53" r="2.3" fill="#1f2937"/><path d="M61 60 q7 6 14 0" stroke="#1f2937" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+  <circle cx="54" cy="58" r="3" fill="#fca5a5" opacity=".6"/><circle cx="82" cy="58" r="3" fill="#fca5a5" opacity=".6"/>
+  <g transform="rotate(-10 112 88)"><rect x="94" y="62" width="34" height="44" rx="3" fill="#fff" stroke="#cbd5e1" stroke-width="1.5"/>
+    <rect x="99" y="68" width="18" height="3" rx="1.5" fill="#cbd5e1"/><rect x="99" y="74" width="24" height="3" rx="1.5" fill="#e2e8f0"/>
+    <text x="111" y="95" text-anchor="middle" font-size="15" font-weight="700" fill="#0F766E" font-family="Segoe UI,Arial">€</text>
+    <path d="M115 99 l3 3 l6-6" stroke="#22c55e" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>
+  <rect x="86" y="70" width="13" height="26" rx="6" fill="#2563eb" transform="rotate(-50 92 72)"/><circle cx="101" cy="86" r="6" fill="#f5c29a"/>
+  <circle cx="118" cy="30" r="17" fill="#fff" stroke="#e2e8f0" stroke-width="1.5"/><rect x="110" y="20" width="16" height="20" rx="2" fill="#ccfbf1" stroke="#0F766E" stroke-width="1.3"/>
+  <path d="M113 34 l3 3 l6-7" stroke="#16a34a" stroke-width="2.4" fill="none" stroke-linecap="round"/></svg>`;
+const VOCI_PC = [["home","🏠","Home"],["acquisisci","📥","Acquisisci"],["archivio","🗂️","Archivio"],["scadenze","⏰","Scadenze"],["grafici","📊","Grafici"],["impostazioni","⚙️","Impostazioni"]];
+// a quale voce del menù appartiene la pagina aperta
+const sezionePC = v => v === "ente" || v === "dettaglio" ? "archivio" : /^imp|^invito$/.test(v) ? "impostazioni" : v;
+async function disegnaMenuPC(){
+  const nav = $("#pcNav"); if(!nav) return;
+  let urg = 0; try{ urg = (await allBollette()).filter(urgente).length; }catch(e){}
+  const sez = sezionePC(current);
+  let verPC = ""; try{ verPC = A && A.versionePC ? A.versionePC() : ""; }catch(e){}
+  nav.innerHTML = `<div class="brand">TR/<span>Bollette</span></div>
+    ${VOCI_PC.map(([k, ic, t]) => `<button class="mi${sez === k ? " on" : ""}" data-pcv="${k}"><span class="ic">${ic}</span>${t}${k === "scadenze" && urg ? `<span class="cnt">${urg}</span>` : sez === k ? `<span class="pt"></span>` : ""}</button>`).join("")}
+    <div class="omino">${OMINO_SVG}<div class="cap">${esc(TITOLI[current] && current !== "home" ? TITOLI[current] : "Home")}</div></div>
+    <div class="piede"><a data-pcv="guida">ℹ️ Info / Guida</a><div class="pcver">${VERSIONE}${verPC ? " — programma " + esc(verPC) : ""}</div></div>`;
+  nav.querySelectorAll("[data-pcv]").forEach(b => b.onclick = () => { if(!document.querySelector(".modal")) setView(b.dataset.pcv); });
+}
+// tasti funzione (come TR/Commander): funzionano anche dalla tastiera
+const TASTI_PC = [["F2","Acquisisci",() => setView("acquisisci")],["F3","Archivio",() => setView("archivio")],["F4","Scadenze",() => setView("scadenze")],
+  ["F5","Aggiorna",async () => { toast("Rileggo l'archivio del NAS…"); const ok = await refreshFromNas(true); if(ok) setView(current, currentArg, true); toast(ok ? "Elenco aggiornato dal NAS." : "Il NAS non risponde.", !ok); }],
+  ["F6","Grafici",() => setView("grafici")],
+  ["F9","Cerca",async () => { if(current !== "archivio") await setView("archivio"); setTimeout(() => { const q = $("#q"); if(q){ q.focus(); q.select(); } }, 60); }],
+  ["F1","Guida",() => setView("guida")]];
+if(SUL_PC){
+  document.body.classList.add("pc"); document.documentElement.classList.add("pc"); document.documentElement.style.setProperty("--bg", "#eef1f5");
+  const nav = document.createElement("aside"); nav.id = "pcNav"; document.body.prepend(nav);
+  const k = document.createElement("div"); k.id = "pcKeys";
+  k.innerHTML = TASTI_PC.map(([t, n]) => `<button data-k="${t}" title="Tasto ${t}"><b>${t}</b>${n}</button>`).join("");
+  document.body.appendChild(k);
+  k.querySelectorAll("[data-k]").forEach(b => b.onclick = () => TASTI_PC.find(x => x[0] === b.dataset.k)[2]());
+  document.addEventListener("keydown", e => {
+    const t = TASTI_PC.find(x => x[0] === e.key);
+    if(t){ e.preventDefault(); if(!document.querySelector(".modal")) t[2](); return; }
+    if(e.key === "Escape" && !document.querySelector(".modal") && current !== "home"){ e.preventDefault(); window.onAndroidBack && window.onAndroidBack(); }
+  });
+  // il menù segue la pagina aperta
+  const setViewTel = setView;
+  setView = function(v, arg, isBack){ const r = setViewTel(v, arg, isBack); document.body.className = document.body.className.replace(/\bv-\S+/g, "").trim() + " v-" + v; disegnaMenuPC(); return r; };
+  document.body.classList.add("v-" + current);
+  disegnaMenuPC();
+  // sul PC il PDF si apre nel programma di Windows: si stampa con Ctrl+P
+  const stampaTel = window.onStampa;
+  window.onStampa = st => {
+    if(st === "aperta" || st === "riepilogo"){ stampaTel("Si è aperto il PDF: per stamparlo premi Ctrl+P (o l'icona della stampante)."); const b = document.getElementById("stampaBadge"); if(b){ b.className = "stb ok"; clearTimeout(b._t); b._t = setTimeout(() => b.remove(), 7000); } return; }
+    return stampaTel(st);
+  };
+}
 </script>
 </body>
 </html>
