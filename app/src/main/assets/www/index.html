@@ -1090,12 +1090,13 @@ window.onStampa = st => {
   if(!b){ b = document.createElement("div"); b.id = "stampaBadge"; document.body.appendChild(b); }
   const T = {scarico:["⏳", "Scarico l'aggiornamento dell'app (circa un minuto, non chiudere)…", "run"], conferma:["📲", "Nella finestra di Android premi \"Aggiorna\". Poi riapri l'app e premi di nuovo Stampa.", "ok"], permesso:["⚠️", "Attiva \"Consenti da questa fonte\", torna indietro e premi di nuovo Stampa.", "warn"], scegli:["🖨️", "Scegli l'app della tua stampante (HP Smart, Canon PRINT, Epson iPrint…) e premi Stampa.", "ok"], iprint:["🖨️", "Scheda aperta in Epson iPrint: premi STAMPA.", "ok"], aperta:["🖨️", "Scheda aperta come PDF: tocca ⋮ → Condividi → l'app della stampante.", "ok"], prepara:["⏳", "Preparo la scheda…", "run"], scelta:["⏳", "Scegli la stampante e premi l'icona di stampa", "run"], coda:["🖨️", "Stampa in coda…", "run"], incorso:["🖨️", "Stampa in corso…", "run"],
     bloccata:["⚠️", "Stampa bloccata: controlla stampante accesa, carta e stessa rete Wi-Fi. Oppure \"Apri PDF\" e stampa con Epson iPrint.", "warn"],
+    riepilogo:["🖨️", "Riepilogo aperto come PDF: tocca ⋮ → Condividi → l'app della stampante, oppure salvalo.", "ok"],
     fatta:["✅", "Inviata alla stampante", "ok"], errore:["❌", "Stampa non riuscita. Con \"Apri PDF\" puoi stamparla con Epson iPrint.", "err"], annullata:["✖️", "Stampa annullata", "warn"]}[st] || ["🖨️", st, "run"];
   const pdf = ["errore", "bloccata"].includes(st) && A && A.apriPdf;
   b.className = "stb " + T[2]; b.innerHTML = `<span>${T[0]}</span><span>${esc(T[1])}</span>${pdf ? `<button class="pdf">Apri PDF</button>` : ""}<button class="x" aria-label="Chiudi">✕</button>`;
   b.querySelector(".x").onclick = () => b.remove();
   if(pdf) b.querySelector(".pdf").onclick = () => { A.apriPdf(); b.remove(); };
-  clearTimeout(b._t); if(["fatta", "annullata", "aperta", "iprint", "scegli"].includes(st)) b._t = setTimeout(() => b.remove(), 6000);
+  clearTimeout(b._t); if(["fatta", "annullata", "aperta", "riepilogo", "iprint", "scegli"].includes(st)) b._t = setTimeout(() => b.remove(), 6000);
 };
 function datiScheda(a, altri){
   const s = statoInfo(a), righe = [];
@@ -1360,8 +1361,9 @@ $("#hDate").textContent = new Date().toLocaleDateString("it-IT", {day:"numeric",
 /* =========================================================
    HOME
    ========================================================= */
-const VERSIONE = "v1.35";
+const VERSIONE = "v1.36";
 const CRONOLOGIA = [
+  {v:"v1.36", d:"25/11/2026", n:["Grafici → 📋 Riepilogo dell'anno: sotto i grafici trovi quanto hai speso per ogni tipo e fornitore, la differenza con l'anno prima, i rimborsi, cosa resta da pagare e l'elenco di tutte le bollette dell'anno (toccane una per aprirla).", "Con il tasto 🖨️ Stampa / salva PDF il riepilogo diventa un foglio A4: riassunto e grafico dei mesi, poi l'elenco delle bollette. Con «Tutte» le case c'è una parte per ogni casa e il totale di tutte.", "Con «Tutti gli anni» c'è la tabellina con il totale di ogni anno."]},
   {v:"v1.35", d:"23/11/2026", n:["Impostazioni → 🗂️ Cartelle dell'archivio: dove sta l'archivio e com'è ordinato, con un esempio vero. Si sceglie l'ordine: Casa → Fornitore → Anno (consigliato), Casa → Anno → Fornitore, oppure Fornitore → Anno (una sola casa). Cambiando, le bollette già salvate vengono spostate nel nuovo ordine.", "Chi parte da zero sceglie l'ordine al salvataggio della prima bolletta. La scelta vale per tutta la famiglia."]},
   {v:"v1.34", d:"22/11/2026", n:["Archivio sul NAS diviso per anni: Casa / Fornitore / Anno / bolletta (es. WindTre - Telefono / 2024 / 2024_01_21 scad. 29,90€).", "Le bollette nuove vanno subito nella cartella del loro anno; per quelle già salvate, in Archivio c'è «🗂️ Metti in ordine per anno»."]},
   {v:"v1.33", d:"22/11/2026", n:["Con più foto della stessa bolletta, la lettura con Google ora le guarda tutte (prima solo la prima).", "Quando rileggi, i dati letti in automatico vengono sostituiti tutti (prima restavano quelli vecchi sbagliati).", "Pronta per la nuova app (2.0): il telefono legge riquadro per riquadro, come la galleria Xiaomi, e tiene la lettura più completa.", "Bollette a credito (rimborso): in Pagamento c'è «💚 A credito (rimborso)»; l'importo si scrive senza il meno, non serve la scadenza e non compare tra quelle da pagare. Nei grafici abbassa la spesa.", "L'importo si scrive con la virgola (es. 78,56).", "Incollando il testo senza foto, il modulo dei dati ora compare."]},
@@ -2321,10 +2323,235 @@ async function renderGrafici(){
       <p class="muted" style="margin:8px 0 0"><span style="color:var(--accent)">■</span> ${grafAnno} &nbsp; <span style="color:#94a3b8">■</span> ${prev} · il mese è quello di fine periodo della bolletta; per le rate e le bollette annuali conta la scadenza</p></div>`}
     ${enti.length > 1 || !grafTipo ? `<div class="card"><h2>Spesa per ente</h2>${enti.map(([k, v]) => `<div class="hb"><div class="hbl"><span>${esc(k)}</span><b>${esc(euro(v))}</b></div><div class="hbt"><div class="hbf" style="width:${v / maxE * 100}%"></div></div></div>`).join("") || `<p class="muted">Nessuna bolletta${tuttiAnni ? "" : " nel " + grafAnno}.</p>`}</div>` : ""}
     ${conCons.length ? `<div class="card"><h2>Consumi ${esc(grafTipo)} (ultime ${conCons.length} bollette)</h2>${conCons.map(b => `<div class="hb"><div class="hbl"><span>${esc(periodoBreve(b) || fmtDate(dataRif(b)))}</span><b>${esc(String(b.consumo).replace(".", ","))} ${esc(b.unita)}</b></div><div class="hbt"><div class="hbf" style="width:${Number(b.consumo) / maxC * 100}%"></div></div></div>`).join("")}</div>` : grafTipo ? "" : `<p class="muted" style="margin:4px">Tocca un tipo (es. 💡 Luce) per vedere anche i consumi.</p>`}
+    ${tuttiAnni && anniOrd.length ? htmlTabellaAnni(anniOrd, perAnno, sel) : ""}
+    ${!tuttiAnni && cur.length ? htmlRiepilogo(datiRiepilogo(sel, grafAnno)) : ""}
     ${!list.length ? `<div class="card muted">Servono bollette con importo per disegnare i grafici.</div>` : ""}`;
+  document.querySelectorAll("#riep [data-id]").forEach(e => e.onclick = () => setView("dettaglio", e.dataset.id));
+  const bR = $("#bStampaRiep");
+  if(bR) bR.onclick = async () => {
+    bR.disabled = true; bR.textContent = "⏳ Preparo…";
+    try{ await stampaRiepilogo(sel, grafAnno); }catch(e){ window.onStampa("errore"); toast("Riepilogo non stampato: " + e.message, true); }
+    bR.disabled = false; bR.textContent = "🖨️ Stampa / salva PDF";
+  };
   document.querySelectorAll("[data-t]").forEach(b => b.onclick = () => { grafTipo = b.dataset.t; renderGrafici(); });
   bindChipsCase(renderGrafici);
   document.querySelectorAll("[data-y]").forEach(b => b.onclick = () => { grafAnno = b.dataset.y; renderGrafici(); });
+}
+
+
+/* =========================================================
+   RIEPILOGO DELL'ANNO (in Grafici): da guardare e da stampare
+   ========================================================= */
+// l = bollette già scelte per casa e tipo; l'anno è quello dei grafici (dataRif)
+function datiRiepilogo(l, anno){
+  const prev = String(+anno - 1), imp = b => Number(b.importo) || 0, somma = x => x.reduce((t, b) => t + imp(b), 0);
+  const cur = l.filter(b => dataRif(b).startsWith(anno)), old = l.filter(b => dataRif(b).startsWith(prev));
+  const chiave = b => normTipo(b.tipo) + "|" + (b.ente || "Ente sconosciuto");
+  const ordTipo = t => { const i = tipi().findIndex(x => x.k === t); return i < 0 ? 999 : i; };
+  const gruppi = new Map();
+  for(const b of cur){ const k = chiave(b); if(!gruppi.has(k)) gruppi.set(k, []); gruppi.get(k).push(b); }
+  const righe = [...gruppi.entries()].map(([k, g]) => {
+    const [tipo, ente] = k.split("|"), p = old.filter(b => chiave(b) === k);
+    const conU = g.filter(b => Number(b.consumo) > 0 && b.unita), u = conU.length ? conU[0].unita : "";
+    return {tipo, ente, n:g.filter(b => b.stato !== "cred").length, nCred:g.filter(b => b.stato === "cred").length, rate:g.some(b => /\brata\b/i.test(b.numero || "")),
+      consumo:u ? conU.filter(b => b.unita === u).reduce((t, b) => t + Number(b.consumo), 0) : 0, unita:u, tot:somma(g), prima:p.length ? somma(p) : null};
+  }).sort((a, b) => ordTipo(a.tipo) - ordTipo(b.tipo) || a.ente.localeCompare(b.ente, "it"));
+  const tot = somma(cur), totPrima = old.length ? somma(old) : null;
+  const mesi = Array(12).fill(0), mesiPrima = Array(12).fill(0);
+  cur.forEach(b => mesi[+dataRif(b).slice(5, 7) - 1] += imp(b)); old.forEach(b => mesiPrima[+dataRif(b).slice(5, 7) - 1] += imp(b));
+  const daPag = cur.filter(daPagare);
+  return {anno, prev, righe, tot, totPrima, perc:totPrima ? (tot - totPrima) / Math.abs(totPrima) * 100 : null, mesi, mesiPrima,
+    daPag, totDaPag:somma(daPag), rimborsi:cur.filter(b => b.stato === "cred"), elenco:[...cur].sort((a, b) => dataRif(a).localeCompare(dataRif(b)) || (a.ente || "").localeCompare(b.ente || "", "it"))};
+}
+const segnoEuro = v => (v > 0.005 ? "+" : v < -0.005 ? "-" : "") + euro(Math.abs(v));
+const coloreDiff = v => v > 0.005 ? "var(--bad)" : v < -0.005 ? "var(--ok)" : "inherit";
+const percTesto = p => p === null ? "—" : (p > 0 ? "+" : p < 0 ? "-" : "") + Math.abs(p).toLocaleString("it-IT", {maximumFractionDigits:1}) + "%";
+const nBollette = r => r.rate ? `${r.n} ${r.n === 1 ? "rata" : "rate"}` : `${r.n} ${r.n === 1 ? "bolletta" : "bollette"}` + (r.nCred ? ` + ${r.nCred} ${r.nCred === 1 ? "rimborso" : "rimborsi"}` : "");
+const consumoTesto = r => r.unita && r.consumo ? Math.round(r.consumo).toLocaleString("it-IT") + " " + r.unita : "";
+// come è stata pagata (✅ solo per ciò che è davvero pagato)
+function pagamentoTesto(b, conIcona){
+  const i = s => conIcona ? s + " " : "";
+  if(b.stato === "pag") return i("✅") + "Pagata" + (b.pagataIl ? " il " + fmtDate(b.pagataIl) : "") + (b.pagataCon ? " · " + b.pagataCon : "");
+  if(b.stato === "dom") return i("🏦") + "Domiciliata";
+  if(b.stato === "cred") return i("💚") + "A credito (rimborso)";
+  return i(statoInfo(b).cls === "bad" ? "⚠️" : "⏳") + statoInfo(b).label;
+}
+function htmlRiepilogo(R){
+  const casa = filtroCasa ? casaInfo(filtroCasa) : null;
+  return `<div class="card" id="riep">
+    <h2>📋 Riepilogo dell'anno ${R.anno}${casa ? " · " + esc(casa.nome) : piuCase() ? " · tutte le case" : ""}${grafTipo ? " · " + esc(grafTipo) : ""}</h2>
+    <div class="muted" style="margin-bottom:8px">${R.daPag.length ? `<b style="color:var(--bad)">Ancora da pagare: ${R.daPag.length} ${R.daPag.length === 1 ? "bolletta" : "bollette"} · ${esc(euro(R.totDaPag))}</b>` : `<b style="color:var(--ok)">Ancora da pagare: nessuna</b>`}</div>
+    ${R.righe.map(r => `<div class="hb" style="cursor:default"><div class="hbl"><span>${tipoInfo(r.tipo).ic} ${esc(r.tipo)} · ${esc(r.ente)}</span><b>${esc(euro(r.tot))}</b></div>
+      <div class="muted" style="font-size:13px">${[nBollette(r), consumoTesto(r)].filter(Boolean).map(esc).join(" · ")}${r.prima !== null ? ` · ${R.prev}: ${esc(euro(r.prima))} <b style="color:${coloreDiff(r.tot - r.prima)}">${esc(segnoEuro(r.tot - r.prima))}</b>` : ` · ${R.prev}: —`}</div></div>`).join("")}
+    <div class="hb" style="cursor:default;border-top:2px solid var(--accent);margin-top:4px"><div class="hbl"><span><b>Totale ${R.anno}</b></span><b>${esc(euro(R.tot))}</b></div>
+      <div class="muted" style="font-size:13px">${R.totPrima !== null ? `${R.prev}: ${esc(euro(R.totPrima))} <b style="color:${coloreDiff(R.tot - R.totPrima)}">${esc(segnoEuro(R.tot - R.totPrima))} (${esc(percTesto(R.perc))})</b>` : `Nessuna bolletta nel ${R.prev} da confrontare`}</div></div>
+    ${R.rimborsi.length ? `<h2 style="margin-top:14px">💚 Rimborsi</h2>${R.rimborsi.map(b => `<div class="hb" data-id="${esc(b.id)}"><div class="hbl"><span>${esc(fmtDate(dataRif(b)))} · ${esc(b.ente || "")}</span><b style="color:var(--ok)">${esc(euro(Math.abs(Number(b.importo))))}</b></div></div>`).join("")}` : ""}
+    <details style="margin-top:12px"><summary style="font-weight:600;padding:8px 0;cursor:pointer">📄 Tutte le bollette del ${R.anno} (${R.elenco.length}) — tocca per vederle</summary>
+      ${R.elenco.map(b => `<div class="hb" data-id="${esc(b.id)}"><div class="hbl"><span>${filtroCasa ? "" : pillCasa(b)}${tipoInfo(b.tipo).ic} ${esc(b.ente || "")} <span class="muted">${esc(periodoBreve(b) || "")}</span></span><b>${esc(euro(b.importo))}</b></div>
+        <div class="muted" style="font-size:13px">${b.scadenza ? "Scad. " + esc(fmtDate(b.scadenza)) + " · " : ""}${esc(pagamentoTesto(b, true))}</div></div>`).join("")}
+    </details>
+    <div class="btns" style="margin-top:12px"><button class="btn primary" id="bStampaRiep">🖨️ Stampa / salva PDF</button></div>
+    <p class="muted" style="margin:6px 0 0;font-size:12.5px">Il foglio A4 ha il riassunto, il grafico dei mesi e l'elenco di tutte le bollette.${!filtroCasa && piuCase() ? " Con «Tutte» c'è una parte per ogni casa." : ""}</p>
+  </div>`;
+}
+function htmlTabellaAnni(anni, tot, l){
+  const righe = anni.map((y, i) => ({y, t:tot[i], n:l.filter(b => dataRif(b).startsWith(y) && b.stato !== "cred").length, d:i ? tot[i] - tot[i - 1] : null})).reverse();
+  return `<div class="card"><h2>📋 Totale di ogni anno</h2>${righe.map(r => `<div class="hb" style="cursor:default"><div class="hbl"><span><b>${r.y}</b> <span class="muted">· ${r.n} ${r.n === 1 ? "bolletta" : "bollette"}</span></span><b>${esc(euro(r.t))}</b></div>
+    ${r.d !== null ? `<div class="muted" style="font-size:13px">Rispetto all'anno prima: <b style="color:${coloreDiff(r.d)}">${esc(segnoEuro(r.d))}</b></div>` : ""}</div>`).join("")}
+    <p class="muted" style="margin:6px 0 0;font-size:12.5px">Tocca un anno in alto per vedere il suo riepilogo e stamparlo.</p></div>`;
+}
+/* PDF A4 di più pagine, fatto nell'app (stessi caratteri della scheda: Helvetica) */
+function pdfPagine(){
+  const W = 595, H = 842, pagine = []; let cs = "";
+  const meas = document.createElement("canvas").getContext("2d");
+  const col = c => `${((c >> 16) & 255) / 255} ${((c >> 8) & 255) / 255} ${(c & 255) / 255}`;
+  const P = {W, H,
+    wid:(t, sz, b) => { meas.font = `${b ? "bold " : ""}${sz}px Helvetica, Arial, sans-serif`; return meas.measureText(String(t)).width; },
+    // testo con l'alto in y; al: "r" a destra, "c" al centro; w: taglia con … se non ci sta
+    txt(t, x, y, sz, b, c, al, w){
+      t = String(t ?? "");
+      if(w && P.wid(t, sz, b) > w){ while(t.length > 1 && P.wid(t + "…", sz, b) > w) t = t.slice(0, -1); t += "…"; }
+      const dx = al === "r" ? P.wid(t, sz, b) : al === "c" ? P.wid(t, sz, b) / 2 : 0;
+      cs += `BT /${b ? "F2" : "F1"} ${sz} Tf ${col(c || 0x1f2937)} rg ${(x - dx).toFixed(1)} ${(H - y - sz * 0.8).toFixed(1)} Td (${pdfStr(t)}) Tj ET\n`;
+    },
+    line(x1, y1, x2, y2, c, lw){ cs += `${col(c)} RG ${lw || 0.6} w ${x1.toFixed(1)} ${(H - y1).toFixed(1)} m ${x2.toFixed(1)} ${(H - y2).toFixed(1)} l S\n`; },
+    rect(x, y, w, h, fill, stroke){ if(fill !== undefined && fill !== null) cs += `${col(fill)} rg ${x.toFixed(1)} ${(H - y - h).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re f\n`;
+      if(stroke !== undefined && stroke !== null) cs += `${col(stroke)} RG 0.8 w ${x.toFixed(1)} ${(H - y - h).toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)} re S\n`; },
+    nuova(){ if(cs) pagine.push(cs); cs = ""; },
+    n:() => pagine.length + (cs ? 1 : 0),
+    // piede: fn(i, tot) per ogni pagina, poi il file
+    fine(piede){
+      P.nuova(); const tot = pagine.length;
+      pagine.forEach((p, i) => { cs = ""; piede(i + 1, tot); pagine[i] = p + cs; });
+      const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"];
+      const kids = [];
+      pagine.forEach(p => { const n = objs.length + 1; kids.push(`${n} 0 R`);
+        objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${W} ${H}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${n + 1} 0 R >>`);
+        objs.push(`<< /Length ${p.length} >>\nstream\n${p}endstream`); });
+      objs[1] = `<< /Type /Pages /Kids [${kids.join(" ")}] /Count ${kids.length} >>`;
+      let out = "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n"; const off = [];
+      objs.forEach((o, i) => { off.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+      const xref = out.length;
+      out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + off.map(n => String(n).padStart(10, "0") + " 00000 n \n").join("");
+      out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+      return btoa(out);
+    }};
+  return P;
+}
+// sezioni: [{titolo, sotto, R}]; casePiu: [{nome, tot, totPrima}] per il totale di tutte le case
+function pdfRiepilogo(sezioni, casePiu, anno){
+  const P = pdfPagine(), M = 36, W = P.W, AW = W - 2 * M, TEAL = 0x0F766E, GRIGIO = 0x6b7280, ROSSO = 0xb91c1c, VERDE = 0x15803d;
+  const e = v => { const n = Number(v) || 0, [a, d] = Math.abs(n).toFixed(2).split("."); return (n < 0 ? "-" : "") + a.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "," + d + " €"; }, diffCol = v => v > 0.005 ? ROSSO : v < -0.005 ? VERDE : 0x1f2937;
+  const segno = v => (v > 0.005 ? "+ " : v < -0.005 ? "- " : "") + e(Math.abs(v));
+  let y;
+  const testa = (titolo, sotto) => {
+    y = M;
+    P.rect(M, y, 34, 34, TEAL); P.rect(M + 9, y + 6, 16, 22, 0xffffff); P.txt("€", M + 17, y + 11, 11, true, TEAL, "c");
+    P.txt(titolo, M + 44, y + 2, 18, true, TEAL, null, AW - 160); P.txt(sotto, M + 44, y + 23, 10, false, 0x4b5563, null, AW - 160);
+    P.txt("TR/software", W - M, y + 4, 8.5, true, TEAL, "r"); P.txt("Bollette di casa", W - M, y + 15, 8.5, false, GRIGIO, "r");
+    y += 42; P.rect(M, y, AW, 2.2, TEAL); y += 12;
+  };
+  const titoletto = t => { P.txt(t, M, y, 12, true, TEAL); y += 18; };
+  // tabella: col = [{t, w, al}], righe = [[testi], opzioni {b, fill, colori}]
+  const intestazione = cols => { P.rect(M, y, AW, 18, TEAL); let x = M; cols.forEach(c => { P.txt(c.t, c.al === "r" ? x + c.w - 5 : x + 5, y + 5, 8.5, true, 0xffffff, c.al, c.w - 8); x += c.w; }); y += 18; };
+  const riga = (cols, vals, o) => {
+    o = o || {}; const h = o.h || 16;
+    if(o.fill) P.rect(M, y, AW, h, o.fill);
+    let x = M; cols.forEach((c, i) => { P.txt(vals[i], c.al === "r" ? x + c.w - 5 : x + 5, y + (h - 8.5) / 2, o.sz || 8.5, o.b || (o.bCol === i), (o.colori || {})[i] || 0x1f2937, c.al, c.w - 8); x += c.w; });
+    y += h; P.line(M, y, M + AW, y, o.linea || 0xe5e7eb, o.lw || 0.6);
+  };
+  for(const S of sezioni){
+    const R = S.R;
+    if(P.n()) P.nuova();
+    testa(S.titolo, S.sotto);
+    // tre riquadri
+    const bw = (AW - 16) / 3;
+    const riq = (i, t, v, c) => { const x = M + i * (bw + 8); P.rect(x, y, bw, 42, 0xf0fdfa, 0x99f6e4); P.txt(t, x + 8, y + 7, 8.5, false, GRIGIO); P.txt(v, x + 8, y + 20, 14, true, c || TEAL, null, bw - 14); };
+    riq(0, "Speso nell'anno", e(R.tot));
+    riq(1, "Rispetto al " + R.prev, R.perc === null ? "—" : percTesto(R.perc).replace("-", "- ").replace("+", "+ "), R.perc === null ? GRIGIO : diffCol(R.perc));
+    riq(2, "Ancora da pagare", R.daPag.length ? `${R.daPag.length} ${R.daPag.length === 1 ? "bolletta" : "bollette"} · ${e(R.totDaPag)}` : "Nessuna", R.daPag.length ? ROSSO : VERDE);
+    y += 56;
+    // per tipo
+    titoletto("Quanto per ogni tipo di bolletta");
+    const ct = [{t:"Tipo", w:78}, {t:"Fornitore", w:118}, {t:"Bollette", w:78, al:"r"}, {t:"Consumo", w:62, al:"r"}, {t:R.anno, w:66, al:"r"}, {t:R.prev, w:66, al:"r"}, {t:"Differenza", w:AW - 468, al:"r"}];
+    intestazione(ct);
+    R.righe.forEach((r, i) => riga(ct, [r.tipo, r.ente, nBollette(r).replace(" bollette", "").replace(" bolletta", ""), consumoTesto(r) || "—", e(r.tot), r.prima === null ? "—" : e(r.prima), r.prima === null ? "—" : segno(r.tot - r.prima)],
+      {fill:i % 2 ? 0xf8fafc : null, bCol:4, colori:{6:r.prima === null ? GRIGIO : diffCol(r.tot - r.prima)}}));
+    riga(ct, ["Totale dell'anno", "", "", "", e(R.tot), R.totPrima === null ? "—" : e(R.totPrima), R.totPrima === null ? "—" : segno(R.tot - R.totPrima)],
+      {fill:0xccfbf1, b:true, h:18, colori:{6:R.totPrima === null ? GRIGIO : diffCol(R.tot - R.totPrima)}, linea:TEAL, lw:1.2});
+    y += 16;
+    // grafico dei mesi (spazio permettendo)
+    if(y < 560){
+      titoletto("Quanto per ogni mese");
+      const gh = 110, gy = y + 12, max = Math.max(1, ...R.mesi, ...R.mesiPrima), cw = AW / 12;
+      R.mesi.forEach((v, i) => { const x = M + i * cw, hp = Math.max(0, R.mesiPrima[i]) / max * gh, hc = Math.max(0, v) / max * gh;
+        if(hp) P.rect(x + cw * 0.12, gy + gh - hp, cw * 0.32, hp, 0xcbd5e1);
+        if(hc) P.rect(x + cw * 0.46, gy + gh - hc, cw * 0.42, hc, 0x14b8a6);
+        if(v) P.txt(String(Math.round(v)), x + cw * 0.67, gy + gh - hc - 10, 7, false, 0x374151, "c");
+        P.txt(MESI[i], x + cw / 2, gy + gh + 4, 8, false, GRIGIO, "c"); });
+      P.line(M, gy + gh, M + AW, gy + gh, 0x9ca3af, 0.8);
+      y = gy + gh + 17;
+      P.rect(M, y + 1, 7, 7, 0x14b8a6); P.txt(R.anno, M + 10, y, 8, false, GRIGIO); P.rect(M + 42, y + 1, 7, 7, 0xcbd5e1); P.txt(R.prev, M + 52, y, 8, false, GRIGIO);
+      P.txt("Euro per mese. Il mese è quello di fine periodo della bolletta; per le rate e le bollette annuali conta la scadenza.", M + 86, y, 7.5, false, GRIGIO, null, AW - 86);
+      y += 22;
+    }
+    // rimborsi
+    if(R.rimborsi.length){
+      if(y > 720) { P.nuova(); testa(S.titolo, S.sotto); }
+      titoletto("Rimborsi ricevuti");
+      const cr = [{t:"Data", w:90}, {t:"Fornitore", w:AW - 190}, {t:"Importo", w:100, al:"r"}];
+      intestazione(cr);
+      R.rimborsi.forEach(b => riga(cr, [fmtDate(dataRif(b)), b.ente || "", e(Math.abs(Number(b.importo)))], {colori:{2:VERDE}}));
+      y += 14;
+    }
+    // elenco di tutte le bollette: comincia su una pagina nuova
+    P.nuova(); testa(`Tutte le bollette del ${R.anno}`, S.sotto);
+    const ce = [{t:"Scadenza", w:58}, {t:"Tipo", w:64}, {t:"Fornitore", w:100}, {t:"Periodo", w:84}, {t:"Importo", w:60, al:"r"}, {t:"Come è stata pagata", w:AW - 366}];
+    intestazione(ce);
+    R.elenco.forEach((b, i) => {
+      if(y > P.H - 60){ P.nuova(); testa(`Tutte le bollette del ${R.anno} (continua)`, S.sotto); intestazione(ce); }
+      riga(ce, [b.scadenza ? fmtDate(b.scadenza) : "—", normTipo(b.tipo), b.ente || "", periodoBreve(b) || "", e(b.importo), pagamentoTesto(b, false).replace("Pagata il ", "Pagata ")],
+        {fill:i % 2 ? 0xf8fafc : null, colori:{4:Number(b.importo) < 0 ? VERDE : null, 5:b.stato === "pag" ? 0x1f2937 : daPagare(b) ? ROSSO : GRIGIO}});
+    });
+  }
+  // più case: il totale di tutte insieme
+  if(casePiu && casePiu.length > 1){
+    P.nuova(); testa(`Tutte le case insieme — ${anno}`, "Totale di ogni casa");
+    const cc = [{t:"Casa", w:AW - 300}, {t:anno, w:100, al:"r"}, {t:String(+anno - 1), w:100, al:"r"}, {t:"Differenza", w:100, al:"r"}];
+    intestazione(cc);
+    casePiu.forEach((c, i) => riga(cc, [c.nome, e(c.tot), c.totPrima === null ? "—" : e(c.totPrima), c.totPrima === null ? "—" : segno(c.tot - c.totPrima)], {fill:i % 2 ? 0xf8fafc : null, colori:{3:c.totPrima === null ? GRIGIO : diffCol(c.tot - c.totPrima)}}));
+    const T = casePiu.reduce((t, c) => t + c.tot, 0), TP = casePiu.some(c => c.totPrima !== null) ? casePiu.reduce((t, c) => t + (c.totPrima || 0), 0) : null;
+    riga(cc, ["Totale", e(T), TP === null ? "—" : e(TP), TP === null ? "—" : segno(T - TP)], {fill:0xccfbf1, b:true, h:18, colori:{3:TP === null ? GRIGIO : diffCol(T - TP)}, linea:TEAL, lw:1.2});
+  }
+  const stampato = `Stampato il ${fmtDate(todayISO())} con Bollette di casa ${VERSIONE}`;
+  return P.fine((i, n) => { P.line(M, P.H - 30, W - M, P.H - 30, 0xe5e7eb, 0.6); P.txt(stampato, M, P.H - 25, 7.5, false, GRIGIO); P.txt(`Pagina ${i} di ${n}`, W - M, P.H - 25, 7.5, false, GRIGIO, "r"); });
+}
+async function stampaRiepilogo(l, anno){
+  window.onStampa("prepara");
+  const solo = grafTipo ? " · solo " + grafTipo : "";
+  const sotto = c => c ? "Casa: " + c.nome + (c.indirizzo ? " · " + c.indirizzo : "") + solo : "Tutte le bollette" + solo;
+  let sezioni, casePiu = null;
+  if(filtroCasa || !piuCase()){
+    const c = filtroCasa ? casaInfo(filtroCasa) : caseCasa()[0] || null;
+    sezioni = [{titolo:`Riepilogo dell'anno ${anno}`, sotto:sotto(c), R:datiRiepilogo(l, anno)}];
+  }else{
+    // tutte le case: una parte per ogni casa che ha bollette in quell'anno, poi il totale
+    const nomi = caseCasa().map(c => c.nome).concat(l.some(b => !b.casa || !caseCasa().some(c => c.nome === b.casa)) ? [""] : []);
+    sezioni = nomi.map(n => { const lc = l.filter(b => n ? b.casa === n : !caseCasa().some(c => c.nome === b.casa));
+      return {titolo:`Riepilogo dell'anno ${anno}`, sotto:n ? sotto(casaInfo(n)) : "Bollette senza casa" + solo, R:datiRiepilogo(lc, anno), nome:n || "Senza casa"}; })
+      .filter(s => s.R.elenco.length);
+    casePiu = sezioni.map(s => ({nome:s.nome, tot:s.R.tot, totPrima:s.R.totPrima}));
+  }
+  if(!sezioni.length) throw new Error("nessuna bolletta nel " + anno);
+  const b64 = pdfRiepilogo(sezioni, casePiu, anno);
+  const titolo = ("Riepilogo " + anno + " " + (filtroCasa || (piuCase() ? "tutte le case" : "")) + (grafTipo ? " " + grafTipo : "")).trim();
+  const nome = titolo.replace(/[^\w\- ]+/g, "_") + ".pdf";
+  if(modoStampa() === "app" && A && A.stampaIPrint){ const r = await call("stampaIPrint", b64, titolo); window.onStampa(r === "iprint" ? "iprint" : "scegli"); return; }
+  if(A && A.openFile){ A.openFile(nome, "application/pdf", b64); window.onStampa("riepilogo"); return; }
+  const w = window.open(URL.createObjectURL(new Blob([b64bytes(b64)], {type:"application/pdf"}))); if(!w) toast("Riepilogo pronto (anteprima non disponibile qui).");
+  window.onStampa("riepilogo");
 }
 
 
@@ -3031,7 +3258,10 @@ function renderGuida(){
 
   cap("grafici", "📊", "Grafici delle spese e dei consumi", `
     ${passo(1, "In <b>Grafici</b> scegli in alto il tipo (Tutte, 💡 Luce, 🔥 Gas…) e l'anno.")}
-    ${passo(2, "Vedi la spesa dell'anno, il confronto con l'anno prima (mese per mese) e la spesa per ente. Scegliendo un tipo vedi anche i <b>consumi</b> e il <b>costo medio</b> al kWh o allo Smc.")}`),
+    ${passo(2, "Vedi la spesa dell'anno, il confronto con l'anno prima (mese per mese) e la spesa per ente. Scegliendo un tipo vedi anche i <b>consumi</b> e il <b>costo medio</b> al kWh o allo Smc.")}
+    ${passo(3, "Più sotto c'è il <b>📋 Riepilogo dell'anno</b>: quanto hai speso per ogni tipo e fornitore, la differenza con l'anno prima, i rimborsi e cosa resta da pagare. Tocca <b>📄 Tutte le bollette</b> per vedere l'elenco: toccandone una si apre.")}
+    ${passo(4, "Per averlo su carta tocca <b>🖨️ Stampa / salva PDF</b>: l'app prepara un foglio A4 con il riassunto e il grafico dei mesi, poi l'elenco di tutte le bollette. Si stampa come la scheda della bolletta (vedi sotto).")}
+    ${nota("Con la casa <b>Tutte</b> il foglio ha una parte per ogni casa e, alla fine, il totale di tutte le case. Con <b>Tutti gli anni</b> vedi invece il totale di ogni anno.")}`),
 
   cap("stampa", "🖨️", "Stampare la scheda A4", `
     ${passo(1, "Tocca <b>🖨️ Stampa</b> nella scheda della bolletta. L'app prepara <b>un solo foglio A4</b> con i dati a sinistra e la prima pagina della bolletta a destra.")}
